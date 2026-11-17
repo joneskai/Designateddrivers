@@ -4,8 +4,8 @@
    The publishable (anon) key is designed to be public — security comes from
    Row Level Security. NEVER put a service_role / secret key here. */
 window.DD_CONFIG = {
-  supabaseUrl: '',
-  supabasePublishableKey: '',
+  supabaseUrl: 'https://ktwvvtiqgevyjutgixae.supabase.co',
+  supabasePublishableKey: 'sb_publishable_L8vguGp6-DKn1e8M_i8MYQ_gNBkzS7F',
 
   // --- The Tee Sheet (both optional) ---
   // Time zone the competition runs in. Proposed dates, deadlines and tee times use it.

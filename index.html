@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Designated Drivers — The Annual Golf Championship</title>
+  <meta name="description" content="The Designated Drivers annual golf championship: live standings, fixtures, players, fines and records.">
+  <meta name="theme-color" content="#062E20">
+  <link rel="icon" type="image/png" href="assets/logo-mark.png">
+  <link rel="apple-touch-icon" href="assets/logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip-link" href="#app">Skip to content</a>
+
+  <div class="demo-banner" id="demoBanner" hidden>
+    <strong>Demo mode</strong> — fictional results, stored only in this browser.<span class="hide-sm"> Nothing here touches the real championship.</span>
+    <button type="button" class="demo-reset" id="demoReset" data-action="reset-demo">Reset demo</button>
+  </div>
+
+  <div class="page-bg" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="#/clubhouse" aria-label="Designated Drivers — Clubhouse">
+        <img class="brand-logo" src="assets/logo-light.png" alt="Designated Drivers logo" width="131" height="180">
+        <span class="brand-divider" aria-hidden="true"></span>
+        <span class="brand-text">
+          <span class="brand-title">Designated<br>Drivers</span>
+          <span class="brand-sub">The Annual Golf Championship</span>
+        </span>
+      </a>
+      <nav class="main-nav" aria-label="Primary">
+        <a href="#/clubhouse" data-nav="clubhouse">Clubhouse</a>
+        <a href="#/fixtures" data-nav="fixtures">Fixtures</a>
+        <a href="#/tee-sheet" data-nav="tee-sheet">Tee Sheet</a>
+        <a href="#/players" data-nav="players">Players</a>
+        <a href="#/fines" data-nav="fines">Fines</a>
+        <a href="#/records" data-nav="records">Records</a>
+      </nav>
+      <button type="button" class="btn-submit" data-action="submit-result">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        <span>Submit Result</span>
+      </button>
+    </div>
+  </header>
+
+  <main id="app" tabindex="-1" aria-live="polite">
+    <div class="container loading-state">
+      <div class="spinner" role="status" aria-label="Loading"></div>
+      <p>Opening the clubhouse…</p>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <span>© Designated Drivers · Est. Season 01</span>
+      <span class="footer-auth" id="footerAuth"></span>
+    </div>
+  </footer>
+
+  <nav class="tabbar" aria-label="Primary (mobile)">
+    <a href="#/clubhouse" data-nav="clubhouse"><svg viewBox="0 0 24 24"><path d="M3 11 12 4l9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Clubhouse</span></a>
+    <a href="#/fixtures" data-nav="fixtures"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span>Fixtures</span></a>
+    <a href="#/tee-sheet" data-nav="tee-sheet"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M8.500 15.500l2.300 2.300 4.700-4.800"/></svg><span>Tee Sheet</span></a>
+    <button type="button" class="tab-submit" data-action="submit-result" aria-label="Submit result"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+    <a href="#/players" data-nav="players"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.6"/><path d="M16.5 14.6c2.6.2 4.4 1.9 5 5.4"/></svg><span>Players</span></a>
+    <a href="#/fines" data-nav="fines"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="2.8"/><path d="M5 6v5c0 1.6 3.1 2.8 7 2.8s7-1.2 7-2.8V6M5 11v5c0 1.6 3.1 2.8 7 2.8s7-1.2 7-2.8v-5"/></svg><span>Fines</span></a>
+    <a href="#/records" data-nav="records" class="tab-records"><svg viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 21h8M9 17h6"/></svg><span>Records</span></a>
+  </nav>
+
+  <div class="modal-root" id="modalRoot" hidden></div>
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+  <!-- Configuration (publishable key only — never a service-role key) -->
+  <script src="config.js"></script>
+  <!-- Libraries (pinned, vendored locally: Chart.js 4.4.1, supabase-js 2.45.4) -->
+  <script src="vendor/chart.umd.js"></script>
+  <script src="vendor/supabase.js"></script>
+  <!-- App -->
+  <script src="engine.js"></script>
+  <script src="teesheet.js"></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -4,14 +4,14 @@
    ===================================================================== */
 (function () {
   'use strict';
-  var E = window.DDEngine, D = window.DDData, T = window.DDTee;
+  var E = window.DDEngine, D = window.DDData;
   var cfg = window.DD_CONFIG || {};
   var params = new URLSearchParams(location.search);
   var liveConfigured = !!(cfg.supabaseUrl && cfg.supabasePublishableKey);
   var forceDemo = params.has('demo') || cfg.mode === 'demo';
   var MODE = (!forceDemo && liveConfigured) ? 'live' : 'demo';
 
-  var state = { data: null, store: null, session: null, seasonId: null, route: null, raceChart: null, charts: [], prevSeries: null, fixtureFilter: 'all', teeView: 'date', teeFixtureId: null };
+  var state = { data: null, store: null, seasonId: null, route: null, raceChart: null, charts: [], prevSeries: null, fixtureFilter: 'all' };
   var app = document.getElementById('app');
 
   /* ------------------------------------------------------------------ helpers */
@@ -48,10 +48,6 @@
     golf: '<svg viewBox="0 0 24 24"><path d="M9 21V3l8 4-8 4"/><path d="M5 21h10"/></svg>',
     balance: '<svg viewBox="0 0 24 24"><path d="M12 3v18M5 7h14M7 7l-3 7a3 3 0 0 0 6 0zM17 7l-3 7a3 3 0 0 0 6 0zM8 21h8"/></svg>',
     lock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
-    star: '<svg viewBox="0 0 24 24"><path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9L3.500 9.7l5.9-.8z"/></svg>',
-    copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>',
-    share: '<svg viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg>',
-    whatsapp: '<svg viewBox="0 0 24 24"><path d="M4 20l1.3-4.2A8 8 0 1 1 8.400 19z"/><path d="M9.2 8.600c-.3 1 .2 2.500 1.600 3.900s2.900 1.900 3.900 1.600l.7-1.200-1.700-1-.8.700c-.6-.2-1.700-1.300-1.900-1.900l.7-.8-1-1.700z" fill="currentColor" stroke="none"/></svg>',
     up: '<svg viewBox="0 0 10 10"><path d="M5 1 9.5 8.5h-9z"/></svg>',
     down: '<svg viewBox="0 0 10 10"><path d="M5 9 .5 1.5h9z"/></svg>'
   };
@@ -84,13 +80,11 @@
     return {
       season: s, fixtures: fx, ids: order, table: table, done: done, next: next,
       movement: E.movement(order, fx, order), timeline: E.timeline(order, fx),
-      nextPoll: next ? T.activePoll(state.data.polls, next.id) : null,
       latest: E.latestFixture(fx), fines: fines, finesSum: E.finesSummary(order, fines),
       row: function (id) { return table.filter(function (r) { return r.id === id; })[0]; }
     };
   }
   function seasonLabel(s) { return s ? (s.name || ('Season ' + pad2(s.number))) : 'Season'; }
-  function isAdmin() { return MODE === 'demo' || !!(state.session && state.session.admin); }
 
   /* ------------------------------------------------------------------ toasts */
   function toast(msg, type) {
@@ -147,49 +141,18 @@
     else { btn.disabled = false; if (btn.dataset.label) btn.innerHTML = btn.dataset.label; }
   }
 
-  /* ------------------------------------------------------------------ auth */
-  function openSignIn(then, need) {
-    need = need || 'admin';
-    if (MODE === 'demo') { if (then) then(); return; }
-    openModal({
-      title: 'Sign in', sub: need === 'player' ? 'Players sign in once on their phone to vote on the Tee Sheet.' : 'Organisers sign in to record results, fines and tee times. Players sign in to vote.',
-      body: '<form id="signinForm" novalidate>' +
-        '<div class="field"><label for="siEmail">Email</label><input class="input" id="siEmail" type="email" autocomplete="username" required></div>' +
-        '<div class="field"><label for="siPw">Password</label><input class="input" id="siPw" type="password" autocomplete="current-password" required></div>' +
-        '<div class="field-error" id="siErr" role="alert"></div><button type="submit" hidden></button></form>',
-      foot: '<button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="siGo">' + ICON.lock + 'Sign in</button>',
-      mount: function (m) {
-        var go = async function (e) {
-          if (e) e.preventDefault();
-          var email = $('#siEmail', m).value.trim(), pw = $('#siPw', m).value;
-          if (!email || !pw) { $('#siErr', m).textContent = 'Enter your email and password.'; return; }
-          var b = $('#siGo', m); busy(b, true, 'Signing in…');
-          try {
-            state.session = await state.store.signIn(email, pw);
-            renderFooter();
-            var okAdmin = state.session && state.session.admin, okPlayer = state.session && state.session.playerId;
-            if (need === 'admin' && !okAdmin) { busy(b, false); render(); $('#siErr', m).textContent = 'Signed in' + (okPlayer ? ' as ' + nm(okPlayer) : '') + ', but this account is not an organiser. Ask the committee to add you to the administrators list (see README).'; return; }
-            if (need === 'player' && !okPlayer) { busy(b, false); render(); $('#siErr', m).textContent = 'Signed in, but this login isn’t linked to a player yet. Ask an organiser to link it (see README).'; return; }
-            closeModal(); toast(okPlayer ? 'Welcome back, ' + nm(okPlayer) + '.' : 'Welcome to the committee room, ' + email.split('@')[0] + '.');
-            render();
-            if (then) then();
-          } catch (err) { busy(b, false); $('#siErr', m).textContent = err.message || 'Sign in failed.'; }
-        };
-        $('#signinForm', m).onsubmit = go; $('#siGo', m).onclick = go;
-      }
-    });
-  }
-  function requireAdmin(fn) {
-    if (isAdmin()) return fn();
-    if (state.session && !state.session.admin) { toast('This account is not an authorised administrator.', 'error'); return; }
-    openSignIn(fn);
-  }
+  /* ------------------------------------------------------------------ editing (no logins) */
+  // Anyone with the link can record and correct results and fines. Every write
+  // goes through a validated, rate-limited database function (see supabase-schema.sql).
+  // `edit` is the single choke point should a read-only mode ever be wanted.
+  function edit(fn) { return fn(); }
   function renderFooter() {
     var el = $('#footerAuth');
-    if (MODE === 'demo') { el.innerHTML = 'Demo mode · <button type="button" data-action="reset-demo">Reset demo data</button>'; return; }
-    if (state.session) el.innerHTML = 'Signed in as ' + esc(state.session.email) + ' (' + [state.session.playerId ? esc(nm(state.session.playerId)) : '', state.session.admin ? 'organiser' : ''].filter(Boolean).join(' · ') + (!state.session.playerId && !state.session.admin ? 'read-only' : '') + ') · <button type="button" data-action="sign-out">Sign out</button>';
-    else el.innerHTML = '<button type="button" data-action="sign-in">Player / committee sign in</button>';
+    el.innerHTML = MODE === 'demo' ? 'Demo mode · <button type="button" data-action="reset-demo">Reset demo data</button>' : 'Shared scoreboard · changes save for everyone';
   }
+  /** Hidden field real people never fill in; simple bots do. */
+  var HONEYPOT = '<input class="hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">';
+  function trapped(m) { var h = $('.hp', m); return !!(h && h.value); }
 
   /* ------------------------------------------------------------------ hero */
   function seasonEyebrow() {
@@ -202,29 +165,12 @@
     return '<section class="hero"><div>' + seasonEyebrow() + '<h1>' + title + '</h1>' + (lede ? '<p class="hero-lede">' + lede + '</p>' : '') + '</div>' + (meta || '') + '</section>';
   }
   function roundMeta(c) {
-    var total = c.season.totalRounds || 12, n = c.next, poll = c.nextPoll;
-    var label = n ? 'Next Round' : 'Status', main, sub = '';
-    var link = '<a class="meta-link" href="#/tee-sheet">View Tee Sheet</a>';
-    if (!n) main = ICON.trophy + '<span>Season complete</span>';
-    else if (poll && poll.status === 'polling') {
-      var pr = T.progress(poll, c.ids);
-      label = 'Next Round — Scheduling';
-      main = ICON.calendar + '<span>' + pr.count + ' / ' + pr.total + ' players responded</span>';
-      sub = (pr.outstanding.length ? 'Awaiting ' + esc(listNames(pr.outstanding.map(nm))) : 'All in — ready to lock in a date') + ' · ' + link;
-    } else if (poll && poll.status === 'agreed') {
-      var as = poll.slots.filter(function (x) { return x.id === poll.agreedSlotId; })[0];
-      label = 'Date Agreed';
-      main = ICON.calendar + '<span>' + (as ? T.longDate(as.date) : 'Date agreed') + '</span>';
-      sub = 'Booking pending. · ' + link;
-    } else if (poll && poll.status === 'confirmed') {
-      main = ICON.calendar + '<span>' + T.shortDate(poll.teeDate) + ' · ' + T.time12(poll.teeTime) + '</span>';
-      sub = esc(poll.course) + ' · ' + link;
-    } else {
-      main = ICON.calendar + '<span>' + (n.date ? fmtDate(n.date) : 'Round ' + pad2(n.round) + ' · Date TBC') + (n.course ? ' · ' + esc(n.course) : (n.date ? ' · Course TBC' : '')) + '</span>';
-      if (!n.date) sub = link;
-    }
+    var total = c.season.totalRounds || 12;
+    var nextHtml = c.next
+      ? '<div class="meta-next">' + ICON.calendar + '<span>' + (c.next.date ? fmtDate(c.next.date) : 'Round ' + pad2(c.next.round) + ' · Date TBC') + (c.next.course ? ' · ' + esc(c.next.course) : (c.next.date ? ' · Course TBC' : '')) + '</span></div>'
+      : '<div class="meta-next">' + ICON.trophy + '<span>Season complete</span></div>';
     return '<div class="hero-meta"><div class="meta-block center"><span class="meta-label">Round</span><span class="meta-big">' + pad2(c.done.length) + ' / ' + total + '</span></div>' +
-      '<div class="meta-block"><span class="meta-label">' + label + '</span><div class="meta-next">' + main + '</div>' + (sub ? '<div class="meta-sub">' + sub + '</div>' : '') + '</div></div>';
+      '<div class="meta-block"><span class="meta-label">' + (c.next ? 'Next Round' : 'Status') + '</span>' + nextHtml + '</div></div>';
   }
 
   /* ------------------------------------------------------------------ CLUBHOUSE */
@@ -468,13 +414,7 @@
   function fixtureRow(f, c) {
     var done = E.isCompleted(f), o = done ? E.outcome(f) : null;
     var isNext = c.next && c.next.id === f.id;
-    var poll = done ? null : pollFor(f.id), ag = poll && poll.status === 'agreed' ? agreedSlot(poll) : null;
-    var status = done ? '<span class="badge done">' + (o.winner === 'DRAW' ? 'Halved' : 'Final') + '</span>'
-      : poll && poll.status === 'confirmed' ? '<span class="badge done">Tee time confirmed</span>'
-      : poll && poll.status === 'agreed' ? '<span class="badge next">Date agreed · booking pending</span>'
-      : poll && poll.status === 'polling' ? '<span class="badge next">Finding a date</span>'
-      : isNext ? '<span class="badge next">Up next</span>' : '<span class="badge">Scheduled</span>';
-    var dateText = ag ? T.shortDate(ag.date) + ' · ' + T.windowLabel(ag) : fmtDate(f.date) + (!done && f.teeTime ? ' · ' + T.time12(f.teeTime) : '');
+    var status = done ? '<span class="badge done">' + (o.winner === 'DRAW' ? 'Halved' : 'Final') + '</span>' : isNext ? '<span class="badge next">Up next</span>' : '<span class="badge">Scheduled</span>';
     var center = done ? '<div class="score-pill">' + f.scoreA + ' – ' + f.scoreB + '</div>' : '<div class="score-pill">vs</div>';
     var result = done ? (o.winner === 'DRAW' ? 'All square' : esc(teamName(o.winners)) + ' by ' + o.margin) : '';
     return '<button type="button" class="fixture ' + (done ? 'completed' : 'upcoming') + (isNext ? ' next' : '') + '" data-fixture="' + f.id + '" aria-label="Round ' + f.round + ' details">' +
@@ -482,7 +422,7 @@
       '<div class="fx-team' + (o && o.winner === 'A' ? ' won' : '') + '">' + pair(f.teamA, 'sm') + '<span class="nm">' + esc(teamName(f.teamA)) + '</span></div>' +
       '<div class="fx-center">' + center + '</div>' +
       '<div class="fx-team right' + (o && o.winner === 'B' ? ' won' : '') + '"><span class="nm">' + esc(teamName(f.teamB)) + '</span>' + pair(f.teamB, 'sm') + '</div>' +
-      '<div class="fx-meta"><div class="date">' + dateText + '</div><div class="course">' + esc(f.course || 'Course TBC') + '</div>' + (result ? '<div class="small muted">' + result + '</div>' : '') + status + '</div></button>';
+      '<div class="fx-meta"><div class="date">' + fmtDate(f.date) + '</div><div class="course">' + esc(f.course || 'Course TBC') + '</div>' + (result ? '<div class="small muted">' + result + '</div>' : '') + status + '</div></button>';
   }
 
   function openFixture(id) {
@@ -496,14 +436,11 @@
     }
     var body = '<div class="fixture-detail-teams">' + team(f.teamA, 'A') + (done ? '<div class="score-pill">' + f.scoreA + ' – ' + f.scoreB + '</div>' : '<div class="score-pill" style="background:transparent;color:var(--muted);border:1.5px dashed var(--line-2)">vs</div>') + team(f.teamB, 'B') + '</div>' +
       (done ? (o.winner === 'DRAW' ? '<div class="win-banner draw"><span class="trophy">' + ICON.balance + '</span><div><div class="t1">All square</div><div class="t2">Both teams on ' + f.scoreA + ' gross · +1 pt each</div></div></div>' : '<div class="win-banner"><span class="trophy">' + ICON.trophy + '</span><div><div class="t1">' + esc(teamName(o.winners)) + ' win</div><div class="t2">By ' + plural(o.margin, 'stroke') + ' · +2 pts each</div></div></div>') : '<div class="callout info">This round has not been played yet.</div>') +
-      '<ul class="confirm-list" style="margin-top:14px"><li><span>Date</span><span>' + fmtDate(f.date, true) + '</span></li>' + (!done && f.teeTime ? '<li><span>Tee-off</span><span>' + T.time12(f.teeTime) + '</span></li>' : '') +
-      (!done && pollFor(f.id) ? '<li><span>Tee Sheet</span><span><a href="#/tee-sheet" data-tee="focus" data-id="' + f.id + '">' + ({ polling: 'Finding a date', agreed: 'Date agreed · booking pending', confirmed: 'Tee time confirmed' }[pollFor(f.id).status]) + ' →</a></span></li>' : '') + '<li><span>Course</span><span>' + esc(f.course || 'TBC') + '</span></li><li><span>Format</span><span>2-person Ambrose · gross</span></li>' +
+      '<ul class="confirm-list" style="margin-top:14px"><li><span>Date</span><span>' + fmtDate(f.date, true) + '</span></li>' + '<li><span>Course</span><span>' + esc(f.course || 'TBC') + '</span></li><li><span>Format</span><span>2-person Ambrose · gross</span></li>' +
       (f.notes ? '<li><span>Notes</span><span>' + esc(f.notes) + '</span></li>' : '') + '</ul>' +
       (fines.length ? '<div class="section-label">Fines this round</div><ul class="confirm-list">' + fines.map(function (x) { return '<li><span>' + esc(nm(x.playerId)) + ' — ' + esc(x.categoryName) + '</span><span>' + money(x.amount) + '</span></li>'; }).join('') + '</ul>' : '');
-    var foot = isAdmin()
-      ? (done ? '<button class="btn btn-danger btn-sm spacer" id="fxDel">' + ICON.trash + 'Delete result</button>' : '<button class="btn btn-ghost btn-sm spacer" id="fxSwap">' + ICON.swap + 'Swap pairing</button>') +
-        '<button class="btn btn-ghost" id="fxEdit">' + ICON.calendar + 'Date & course</button><button class="btn btn-primary" id="fxRes">' + (done ? ICON.edit + 'Edit result' : ICON.plus + 'Enter result') + '</button>'
-      : '<button class="btn btn-ghost" data-close>Close</button>' + (MODE === 'live' && !state.session ? '<button class="btn btn-primary" id="fxSignIn">' + ICON.lock + 'Committee sign in</button>' : '');
+    var foot = (done ? '<button class="btn btn-danger btn-sm spacer" id="fxDel">' + ICON.trash + 'Delete result</button>' : '<button class="btn btn-ghost btn-sm spacer" id="fxSwap">' + ICON.swap + 'Swap pairing</button>') +
+      '<button class="btn btn-ghost" id="fxEdit">' + ICON.calendar + 'Date & course</button><button class="btn btn-primary" id="fxRes">' + (done ? ICON.edit + 'Edit result' : ICON.plus + 'Enter result') + '</button>';
     openModal({
       title: 'Round ' + pad2(f.round), sub: esc(seasonLabel(season())) + ' · ' + (done ? 'Completed' : 'Scheduled'), body: body, foot: foot,
       mount: function (m) {
@@ -511,7 +448,6 @@
         if ((b = $('#fxRes', m))) b.onclick = function () { openSubmit(f.id); };
         if ((b = $('#fxEdit', m))) b.onclick = function () { openFixtureEdit(f.id); };
         if ((b = $('#fxSwap', m))) b.onclick = function () { openSwap(f.id); };
-        if ((b = $('#fxSignIn', m))) b.onclick = function () { openSignIn(function () { openFixture(f.id); }); };
         if ((b = $('#fxDel', m))) b.onclick = async function () {
           var ok = await confirmDialog('Delete Round ' + pad2(f.round) + ' result?', 'The score will be removed and every standing, chart and record will be recalculated. Fines are kept.', 'Delete result', true);
           if (!ok) return;
@@ -522,10 +458,8 @@
   }
 
   function openFixtureEdit(id) {
-    requireAdmin(function () {
+    edit(function () {
       var f = fixtureById(id);
-      var booked = pollFor(f.id);
-      if (booked && booked.status === 'confirmed') { closeModal(); state.teeFixtureId = f.id; location.hash = '#/tee-sheet'; toast('This round has a confirmed tee time — use “Edit booking” on the Tee Sheet.'); return; }
       openModal({
         title: 'Round ' + pad2(f.round) + ' — date & course', sub: 'Pairings stay locked to keep the season balanced.',
         body: '<div class="row-2"><div class="field"><label for="feDate">Date</label><input class="input" type="date" id="feDate" value="' + esc(f.date || '') + '"></div>' +
@@ -543,7 +477,7 @@
   }
 
   function openSwap(id) {
-    requireAdmin(function () {
+    edit(function () {
       var f = fixtureById(id);
       var others = seasonFixtures(f.seasonId).filter(function (x) { return x.id !== f.id && !E.isCompleted(x) && E.pairKey(x.teamA[0], x.teamA[1]) !== E.pairKey(f.teamA[0], f.teamA[1]) && E.pairKey(x.teamB[0], x.teamB[1]) !== E.pairKey(f.teamA[0], f.teamA[1]); });
       openModal({
@@ -563,153 +497,100 @@
   }
 
   /* ------------------------------------------------------------------ SUBMIT RESULT */
+  // One screen: pick the round, enter course, date and the two gross scores, submit.
+  // The same form corrects an existing result (opened from the Fixtures page).
   function openSubmit(fixtureId) {
-    requireAdmin(function () {
+    edit(function () {
       var s = season();
       if (!s) return toast('No active season.', 'error');
-      var editing = fixtureId && E.isCompleted(fixtureById(fixtureId));
+      var editing = !!fixtureId && E.isCompleted(fixtureById(fixtureId));
       var open = seasonFixtures().filter(function (f) { return !E.isCompleted(f); });
-      if (!editing && !open.length) { toast('Every round of ' + seasonLabel(s) + ' has a result. Edit a round from the Fixtures page.', 'error'); return; }
-      var form = { fixtureId: fixtureId || open[0].id, fines: [] };
-      var f0 = fixtureById(form.fixtureId);
-      form.date = f0.date && (editing || f0.date <= todayIso()) ? f0.date : todayIso();
-      form.course = f0.course || ''; form.scoreA = editing ? f0.scoreA : ''; form.scoreB = editing ? f0.scoreB : ''; form.notes = editing ? f0.notes : '';
+      if (!editing && !open.length) { toast('Every round of ' + seasonLabel(s) + ' has a result. Correct one from the Fixtures page.', 'error'); return; }
+      var first = fixtureById(fixtureId) && (editing || !E.isCompleted(fixtureById(fixtureId))) ? fixtureById(fixtureId) : open[0];
+      var form = { fixtureId: first.id, course: first.course || '', scoreA: editing ? first.scoreA : '', scoreB: editing ? first.scoreB : '', notes: editing ? first.notes : '' };
+      form.date = first.date && (editing || first.date <= todayIso()) ? first.date : todayIso();
       var saving = false;
+      var modal = openModal({ title: 'Submit result', body: '', wide: true });
 
-      function catOptions(sel) { return state.data.fineCategories.filter(function (c) { return c.active || c.id === sel; }).map(function (c) { return '<option value="' + c.id + '"' + (c.id === sel ? ' selected' : '') + '>' + esc(c.name) + ' (' + money(c.amount) + ')</option>'; }).join(''); }
-      function playerOptions(sel) { return players().map(function (p) { return '<option value="' + p.id + '"' + (p.id === sel ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join(''); }
-
+      function result(f) {
+        if (form.scoreA === '' || form.scoreB === '' || E.validateScores(form.scoreA, form.scoreB).length) return null;
+        return E.outcome({ teamA: f.teamA, teamB: f.teamB, scoreA: +form.scoreA, scoreB: +form.scoreB, status: 'completed' });
+      }
       function preview(f) {
-        var a = form.scoreA, b = form.scoreB;
-        if (a === '' || b === '' || E.validateScores(a, b).length) return '<div class="preview" id="pv"><span class="muted">Enter both gross scores to see the result. Lowest gross wins.</span></div>';
-        var fake = { teamA: f.teamA, teamB: f.teamB, scoreA: +a, scoreB: +b, status: 'completed' };
-        var o = E.outcome(fake);
-        var title = o.winner === 'DRAW' ? 'All square on ' + a + ' — a draw' : esc(teamName(o.winners)) + ' win by ' + plural(o.margin, 'stroke');
+        var o = result(f);
+        if (!o) return '<div class="preview" id="pv"><span class="muted">Enter both gross scores. Lowest gross wins; points update automatically.</span></div>';
+        var title = o.winner === 'DRAW' ? 'All square on ' + form.scoreA + ' — a draw' : esc(teamName(o.winners)) + ' win by ' + plural(o.margin, 'stroke');
         return '<div class="preview ' + (o.winner === 'DRAW' ? '' : 'win') + '" id="pv"><div class="pv-title">' + title + '</div><div class="pv-points">' +
           f.teamA.concat(f.teamB).map(function (p) { return '<div>' + esc(nm(p)) + '<b class="' + (o.points[p] ? 'plus' : '') + '">+' + o.points[p] + '</b></div>'; }).join('') + '</div></div>';
       }
-      function fineLines() {
-        return form.fines.map(function (fl, i) {
-          return '<div class="fine-line" data-i="' + i + '"><select class="input" data-fk="playerId" aria-label="Player">' + playerOptions(fl.playerId) + '</select>' +
-            '<select class="input" data-fk="categoryId" aria-label="Offence">' + catOptions(fl.categoryId) + '</select>' +
-            '<input class="input" data-fk="amount" type="number" min="0" step="0.5" inputmode="decimal" value="' + esc(fl.amount) + '" aria-label="Amount">' +
-            '<button type="button" class="icon-btn" data-rm="' + i + '" aria-label="Remove fine">' + ICON.trash + '</button></div>';
-        }).join('');
-      }
-      function drawForm() {
-        var f = fixtureById(form.fixtureId);
-        var o = (form.scoreA !== '' && form.scoreB !== '' && !E.validateScores(form.scoreA, form.scoreB).length) ? E.outcome({ teamA: f.teamA, teamB: f.teamB, scoreA: +form.scoreA, scoreB: +form.scoreB, status: 'completed' }) : null;
+      function draw() {
+        var f = fixtureById(form.fixtureId), o = result(f);
         var roundField = editing
-          ? '<div class="field"><span class="lbl">Round</span><div class="input" style="display:flex;align-items:center;background:var(--card-2)">Round ' + pad2(f.round) + ' (editing recorded result)</div></div>'
+          ? '<div class="field"><span class="lbl">Round</span><div class="input" style="display:flex;align-items:center;background:var(--card-2)">Round ' + pad2(f.round) + ' — correcting the recorded result</div></div>'
           : '<div class="field"><label for="srRound">Round</label><select class="input" id="srRound">' + open.map(function (x) { return '<option value="' + x.id + '"' + (x.id === form.fixtureId ? ' selected' : '') + '>Round ' + pad2(x.round) + ' — ' + esc(teamName(x.teamA)) + ' v ' + esc(teamName(x.teamB)) + '</option>'; }).join('') + '</select></div>';
         modal.draw({
-          title: editing ? 'Edit result' : 'Submit result', sub: esc(seasonLabel(s)) + ' · 2-person Ambrose · gross strokes',
-          wide: true,
-          body: (editing ? '<div class="callout">Editing an earlier result recalculates every standing, chart and record that follows it.</div>' : '') +
-            '<form id="srForm" novalidate>' + roundField +
-            '<div class="row-2"><div class="field"><label for="srDate">Date played</label><input class="input" type="date" id="srDate" value="' + esc(form.date) + '" max="' + todayIso() + '" required><div class="field-error" data-err="date"></div></div>' +
-            '<div class="field"><label for="srCourse">Golf course</label><input class="input" id="srCourse" list="courseList" value="' + esc(form.course) + '" placeholder="e.g. Wembley Golf Course" required>' + courseDatalist() + '<div class="field-error" data-err="course"></div></div></div>' +
-            '<div class="row-2 keep">' +
-            ['A', 'B'].map(function (side) {
+          title: editing ? 'Correct result' : 'Submit result', sub: esc(seasonLabel(s)) + ' · 2-person Ambrose · gross strokes', wide: true,
+          body: '<form id="srForm" novalidate>' + HONEYPOT + roundField +
+            '<div class="row-2"><div class="field"><label for="srCourse">Golf course</label><input class="input" id="srCourse" list="courseList" maxlength="80" value="' + esc(form.course) + '" placeholder="e.g. Wembley Golf Course" required>' + courseDatalist() + '<div class="field-error" data-err="course"></div></div>' +
+            '<div class="field"><label for="srDate">Date played</label><input class="input" type="date" id="srDate" value="' + esc(form.date) + '" max="' + todayIso() + '" required><div class="field-error" data-err="date"></div></div></div>' +
+            '<div class="row-2 keep">' + ['A', 'B'].map(function (side) {
               var t = side === 'A' ? f.teamA : f.teamB;
               return '<div class="team-box' + (o && o.winner === side ? ' winner' : '') + '" id="tb' + side + '"><div class="tb-head"><span class="tb-tag">Team ' + side + '</span>' + pair(t, 'sm') + '</div><div class="tb-names">' + esc(teamName(t)) + '</div>' +
                 '<div class="field" style="margin:10px 0 0"><label for="sr' + side + '">Gross strokes</label><input class="input score-input" id="sr' + side + '" type="number" inputmode="numeric" min="' + E.MIN_SCORE + '" max="' + E.MAX_SCORE + '" step="1" value="' + esc(side === 'A' ? form.scoreA : form.scoreB) + '" placeholder="—" required><div class="field-error" data-err="' + side + '"></div></div></div>';
             }).join('') + '</div>' +
             '<div style="margin-top:14px">' + preview(f) + '</div>' +
-            '<div class="field"><label for="srNotes">Notes <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:500">(optional)</span></label><textarea class="input" id="srNotes" placeholder="Shot of the day, conditions, excuses…">' + esc(form.notes || '') + '</textarea></div>' +
-            (editing ? '' : '<div class="section-label"><span>Fines from this round <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:500">(optional)</span></span><button type="button" class="btn btn-ghost btn-sm" id="srAddFine">' + ICON.plus + 'Add fine</button></div><div id="srFines">' + fineLines() + '</div>') +
-            '</form>',
-          foot: '<button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="button" class="btn btn-primary" id="srNext">Review result ' + ICON.arrow + '</button>',
-          mount: bindForm
+            '<details class="more"' + (form.notes ? ' open' : '') + '><summary>Add a note <span class="muted">(optional)</span></summary><textarea class="input" id="srNotes" maxlength="300" aria-label="Notes" placeholder="Shot of the day, conditions, excuses…">' + esc(form.notes || '') + '</textarea></details>' +
+            (MODE === 'demo' ? '<p class="small muted" style="margin:10px 0 0">Demo mode: saved only in this browser.</p>' : '') + '</form>',
+          foot: '<button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="button" class="btn btn-primary" id="srSave">' + ICON.check + (editing ? 'Save correction' : 'Submit result') + '</button>',
+          mount: bind
         });
       }
-      function bindForm(m) {
-        var f = fixtureById(form.fixtureId);
+      function bind(m) {
         var rs = $('#srRound', m);
-        if (rs) rs.onchange = function () { form.fixtureId = rs.value; var nf = fixtureById(rs.value); if (!form.course || form.course === f.course) form.course = nf.course || form.course; drawForm(); };
+        if (rs) rs.onchange = function () { var was = fixtureById(form.fixtureId), now = fixtureById(rs.value); if (!form.course || form.course === was.course) form.course = now.course || form.course; form.fixtureId = rs.value; draw(); };
         $('#srDate', m).oninput = function () { form.date = this.value; };
         $('#srCourse', m).oninput = function () { form.course = this.value; };
         $('#srNotes', m).oninput = function () { form.notes = this.value; };
         ['A', 'B'].forEach(function (side) {
           $('#sr' + side, m).oninput = function () {
             form['score' + side] = this.value === '' ? '' : Number(this.value);
-            var nf = fixtureById(form.fixtureId);
-            $('#pv', m).outerHTML = preview(nf);
-            var o = (form.scoreA !== '' && form.scoreB !== '' && !E.validateScores(form.scoreA, form.scoreB).length) ? E.outcome({ teamA: nf.teamA, teamB: nf.teamB, scoreA: +form.scoreA, scoreB: +form.scoreB, status: 'completed' }) : null;
+            var f = fixtureById(form.fixtureId), o = result(f);
+            $('#pv', m).outerHTML = preview(f);
             $('#tbA', m).classList.toggle('winner', !!o && o.winner === 'A'); $('#tbB', m).classList.toggle('winner', !!o && o.winner === 'B');
             this.classList.remove('invalid'); $('[data-err="' + side + '"]', m).textContent = '';
           };
         });
-        var add = $('#srAddFine', m);
-        if (add) add.onclick = function () {
-          var cat = state.data.fineCategories.filter(function (c) { return c.active; })[0];
-          if (!cat) { toast('Add a fine category on the Fines page first.', 'error'); return; }
-          form.fines.push({ playerId: ids()[0], categoryId: cat.id, amount: cat.amount }); $('#srFines', m).innerHTML = fineLines();
-        };
-        var fl = $('#srFines', m);
-        if (fl) {
-          fl.oninput = fl.onchange = function (e) {
-            var line = e.target.closest('.fine-line'); if (!line) return;
-            var i = +line.dataset.i, k = e.target.dataset.fk; if (!k) return;
-            form.fines[i][k] = k === 'amount' ? e.target.value : e.target.value;
-            if (k === 'categoryId' && e.type === 'change') { var c = catById(e.target.value); form.fines[i].amount = c.amount; $('[data-fk="amount"]', line).value = c.amount; }
-          };
-          fl.onclick = function (e) { var b = e.target.closest('[data-rm]'); if (!b) return; form.fines.splice(+b.dataset.rm, 1); fl.innerHTML = fineLines(); };
-        }
-        $('#srNext', m).onclick = function () { if (validate(m)) drawConfirm(); };
-        $('#srForm', m).onsubmit = function (e) { e.preventDefault(); };
+        $('#srSave', m).onclick = function () { if (valid(m)) save(m, this); };
+        $('#srForm', m).onsubmit = function (e) { e.preventDefault(); if (valid(m)) save(m, $('#srSave', m)); };
       }
-      function validate(m) {
+      function valid(m) {
         var ok = true;
         function err(k, msg, input) { ok = false; $('[data-err="' + k + '"]', m).textContent = msg; if (input) input.classList.add('invalid'); }
         $$('.field-error', m).forEach(function (x) { x.textContent = ''; }); $$('.invalid', m).forEach(function (x) { x.classList.remove('invalid'); });
-        if (!form.date) err('date', 'Choose the date the round was played.', $('#srDate', m));
-        else if (form.date > todayIso()) err('date', 'A result cannot be recorded for a future date.', $('#srDate', m));
         if (!String(form.course || '').trim()) err('course', 'Enter the golf course.', $('#srCourse', m));
+        if (!form.date) err('date', 'Choose the date the round was played.', $('#srDate', m));
+        else if (form.date > todayIso()) err('date', 'A result can’t be recorded for a future date.', $('#srDate', m));
         ['A', 'B'].forEach(function (side) {
           var v = form['score' + side];
-          var e2 = E.validateScores(v, 72);
-          if (v === '' || e2.length) err(side, v === '' ? 'Required.' : 'Whole number between ' + E.MIN_SCORE + ' and ' + E.MAX_SCORE + '.', $('#sr' + side, m));
+          if (v === '' || E.validateScores(v, 72).length) err(side, v === '' ? 'Required.' : 'Whole number between ' + E.MIN_SCORE + ' and ' + E.MAX_SCORE + '.', $('#sr' + side, m));
         });
-        form.fines.forEach(function (x) { if (!(Number(x.amount) >= 0) || x.amount === '') { ok = false; toast('Each fine needs a valid amount.', 'error'); } });
-        var dup = !editing && E.isCompleted(fixtureById(form.fixtureId));
-        if (dup) { ok = false; toast('That round already has a result.', 'error'); }
+        if (!editing && E.isCompleted(fixtureById(form.fixtureId))) { ok = false; toast('That round already has a result.', 'error'); }
         if (!ok) { var first = $('.invalid', m); if (first) first.focus(); }
         return ok;
       }
-      function drawConfirm() {
-        var f = fixtureById(form.fixtureId);
-        var o = E.outcome({ teamA: f.teamA, teamB: f.teamB, scoreA: +form.scoreA, scoreB: +form.scoreB, status: 'completed' });
-        modal.draw({
-          title: 'Confirm result', sub: 'Check everything — this updates the championship for everyone.', wide: true,
-          body: '<div class="fixture-detail-teams"><div class="team">' + pair(f.teamA, 'lg') + '<span class="team-name">' + esc(teamName(f.teamA)) + '</span></div><div class="score-pill">' + form.scoreA + ' – ' + form.scoreB + '</div><div class="team">' + pair(f.teamB, 'lg') + '<span class="team-name">' + esc(teamName(f.teamB)) + '</span></div></div>' +
-            (o.winner === 'DRAW' ? '<div class="win-banner draw"><span class="trophy">' + ICON.balance + '</span><div><div class="t1">All square</div><div class="t2">+1 pt each</div></div></div>' : '<div class="win-banner"><span class="trophy">' + ICON.trophy + '</span><div><div class="t1">' + esc(teamName(o.winners)) + ' win</div><div class="t2">By ' + plural(o.margin, 'stroke') + ' · +2 pts each</div></div></div>') +
-            '<ul class="confirm-list" style="margin-top:14px"><li><span>Round</span><span>' + pad2(f.round) + ' of ' + (season().totalRounds || 12) + '</span></li><li><span>Date</span><span>' + fmtDate(form.date, true) + '</span></li><li><span>Course</span><span>' + esc(form.course) + '</span></li>' +
-            f.teamA.concat(f.teamB).map(function (p) { return '<li><span>' + esc(nm(p)) + '</span><span>+' + o.points[p] + ' pts</span></li>'; }).join('') +
-            (form.notes ? '<li><span>Notes</span><span>' + esc(form.notes) + '</span></li>' : '') +
-            (form.fines.length ? form.fines.map(function (x) { return '<li><span>Fine · ' + esc(nm(x.playerId)) + '</span><span>' + esc(catById(x.categoryId).name) + ' · ' + money(x.amount) + '</span></li>'; }).join('') : '') + '</ul>' +
-            (MODE === 'demo' ? '<div class="callout" style="margin-top:14px">Demo mode: this is saved only in this browser.</div>' : ''),
-          foot: '<button type="button" class="btn btn-ghost spacer" id="srBack">' + ICON.back + 'Back</button><button type="button" class="btn btn-primary" id="srSave">' + ICON.check + 'Confirm & save</button>',
-          mount: function (m) {
-            $('#srBack', m).onclick = drawForm;
-            $('#srSave', m).onclick = async function () {
-              if (saving) return; saving = true; var b = this; busy(b, true);
-              try {
-                await state.store.saveResult({ fixtureId: f.id, date: form.date, course: form.course.trim(), scoreA: +form.scoreA, scoreB: +form.scoreB, notes: (form.notes || '').trim(), mode: editing ? 'update' : 'create' });
-                if (form.fines.length) {
-                  try { await state.store.addFines(form.fines.map(function (x) { return { seasonId: f.seasonId, playerId: x.playerId, categoryId: x.categoryId, fixtureId: f.id, amount: Number(x.amount), notes: '' }; })); }
-                  catch (e) { toast('Result saved, but fines failed: ' + e.message, 'error'); }
-                }
-                closeModal();
-                toast(o.winner === 'DRAW' ? 'Round ' + pad2(f.round) + ' saved — all square.' : 'Round ' + pad2(f.round) + ' saved — ' + teamName(o.winners) + ' win by ' + o.margin + '.');
-                await refresh('#/clubhouse');
-              } catch (e) { saving = false; busy(b, false); toast(e.message || 'Could not save the result.', 'error'); }
-            };
-          }
-        });
+      async function save(m, btn) {
+        if (saving) return;                       // double-tap protection
+        if (trapped(m)) { closeModal(); return; }
+        saving = true; busy(btn, true);
+        var f = fixtureById(form.fixtureId), o = result(f);
+        try {
+          await state.store.saveResult({ fixtureId: f.id, date: form.date, course: form.course.trim(), scoreA: +form.scoreA, scoreB: +form.scoreB, notes: (form.notes || '').trim(), mode: editing ? 'update' : 'create' });
+          closeModal();
+          toast(o.winner === 'DRAW' ? 'Round ' + pad2(f.round) + ' saved — all square.' : 'Round ' + pad2(f.round) + ' saved — ' + teamName(o.winners) + ' win by ' + o.margin + '.');
+          await refresh('#/clubhouse');
+        } catch (e) { saving = false; busy(btn, false); toast(e.message || 'Could not save the result.', 'error'); refresh(); }
       }
-      var modal = openModal({ title: 'Submit result', body: '', wide: true });
-      drawForm();
+      draw();
     });
   }
 
@@ -740,7 +621,7 @@
     var html = '<div class="page container">' +
       '<a class="back-link" href="#/players">' + ICON.back + 'All players</a>' +
       '<section class="profile-hero" style="--pc:' + p.color + '">' + avatar(id, 'xl') + '<div><div class="eyebrow">' + esc(seasonLabel(c.season)) + ' · ' + (r.played ? ordinal(r.rank) + (r.shared ? ' (shared)' : '') + ' in the championship' : 'Yet to tee off') + '</div><h1>' + esc(p.name) + '</h1>' +
-      '<div class="hero-tags"><span class="tag">' + r.points + ' pts</span><span class="tag">' + r.wins + 'W · ' + r.draws + 'D · ' + r.losses + 'L</span><span class="tag">Stroke diff ' + (r.diff > 0 ? '+' : '') + r.diff + '</span></div></div></section>' +
+      (p.bio ? '<p class="hero-lede" style="margin:6px 0 0">' + esc(p.bio) + '</p>' : '') + '<div class="hero-tags"><span class="tag">' + r.points + ' pts</span><span class="tag">' + r.wins + 'W · ' + r.draws + 'D · ' + r.losses + 'L</span><span class="tag">Stroke diff ' + (r.diff > 0 ? '+' : '') + r.diff + '</span></div></div></section>' +
       '<div class="card" style="margin-bottom:18px"><div class="kpis">' +
       kpi('Position', r.played ? ordinal(r.rank) : '—', r.shared ? 'Shared' : 'of 4') + kpi('Points', r.points, 'Max ' + (2 * (c.season.totalRounds || 12))) + kpi('Played', r.played, (c.season.totalRounds || 12) - r.played + ' to play') + kpi('Win rate', pct(r.winPct), r.wins + 'W ' + r.draws + 'D ' + r.losses + 'L') +
       kpi('Avg team gross', num1(r.avgGross), 'Ambrose, per round') + kpi('Best team gross', r.best == null ? '—' : r.best, 'Lowest') + kpi('Worst team gross', r.worst == null ? '—' : r.worst, 'Highest') + '<div class="kpi"><div class="k">Current form</div><div style="margin-top:8px">' + formHtml(r.form) + '</div></div>' +
@@ -782,70 +663,84 @@
 
   /* ------------------------------------------------------------------ FINES */
   function renderFines() {
-    var c = ctx(), fs = c.finesSum, admin = isAdmin();
+    var c = ctx(), fs = c.finesSum;
     var maxTot = Math.max.apply(null, fs.rows.map(function (r) { return r.total; }).concat([1]));
     var off = fs.topOffenders;
     var hist = c.fines.slice().sort(function (a, b) { return (b.createdAt || '').localeCompare(a.createdAt || ''); });
     var cats = state.data.fineCategories.slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
     app.innerHTML = '<div class="page container">' + hero('The Disciplinary Committee', 'Justice is swift, fair and payable in cash. Fines fund the end-of-season dinner and have no bearing on championship points.', '') +
-      (admin ? '<div class="toolbar"><span></span><div class="btn-row"><button class="btn btn-cream" data-action="add-category">' + ICON.plus + 'New offence</button><button class="btn btn-gold" data-action="add-fine">' + ICON.gavel + 'Issue a fine</button></div></div>' : '') +
+      ('<div class="toolbar"><span></span><div class="btn-row"><button class="btn btn-cream" data-action="add-category">' + ICON.plus + 'New offence</button><button class="btn btn-gold" data-action="add-fine">' + ICON.gavel + 'Issue a fine</button></div></div>') +
       '<div class="grid grid-4 fines-hero-stats">' +
       '<div class="card stat" style="border:0">' + '<span class="stat-icon">' + ICON.coins + '</span><span class="stat-body"><span class="stat-label">Total fines pot</span><div class="stat-value">' + money(fs.total) + '</div><div class="stat-sub">' + plural(fs.count, 'offence') + '</div></span></div>' +
       '<div class="card stat" style="border:0"><span class="stat-icon">' + ICON.check + '</span><span class="stat-body"><span class="stat-label">Paid</span><div class="stat-value">' + money(fs.paid) + '</div><div class="stat-sub">Settled with the treasurer</div></span></div>' +
       '<div class="card stat" style="border:0"><span class="stat-icon">' + ICON.alert + '</span><span class="stat-body"><span class="stat-label">Outstanding</span><div class="stat-value">' + money(fs.outstanding) + '</div><div class="stat-sub">The Committee is watching</div></span></div>' +
       '<div class="card stat" style="border:0"><span class="stat-icon">' + ICON.gavel + '</span><span class="stat-body"><span class="stat-label">Most fined</span><div class="stat-value' + (off.length > 1 ? ' sm' : '') + '">' + (off.length ? esc(listNames(off.map(function (r) { return nm(r.id); }))) : '—') + '</div><div class="stat-sub">' + (off.length ? money(off[0].total) + (off.length > 1 ? ' each' : '') : 'No offenders yet') + '</div></span></div></div>' +
       '<div class="grid grid-race"><section class="card"><h2>Offence Register</h2><p class="card-sub">Every charge laid before the Committee this season</p>' +
-      (hist.length ? '<div class="table-wrap"><table class="data-table" style="margin-top:12px"><thead><tr><th>Offender</th><th>Offence</th><th class="hide-sm">Round</th><th class="num">Amount</th><th>Status</th>' + (admin ? '<th class="num"><span class="visually-hidden">Actions</span></th>' : '') + '</tr></thead><tbody>' +
+      (hist.length ? '<div class="table-wrap"><table class="data-table" style="margin-top:12px"><thead><tr><th>Offender</th><th>Offence</th><th class="hide-sm">Round</th><th class="num">Amount</th><th>Status</th>' + ('<th class="num"><span class="visually-hidden">Actions</span></th>') + '</tr></thead><tbody>' +
         hist.map(function (f) {
           var fx = fixtureById(f.fixtureId);
           return '<tr><td><span class="inline-player">' + avatar(f.playerId, 'xs') + esc(nm(f.playerId)) + '</span></td><td>' + esc(f.categoryName) + (f.notes ? '<div class="small muted">' + esc(f.notes) + '</div>' : '') + '</td><td class="hide-sm">' + (fx ? 'R' + pad2(fx.round) : '—') + '</td><td class="num"><b>' + money(f.amount) + '</b></td>' +
-            '<td>' + (admin ? '<button class="badge ' + (f.paid ? 'paid' : 'unpaid') + '" style="margin:0;border:0;cursor:pointer" data-toggle-paid="' + f.id + '" title="Toggle paid">' + (f.paid ? 'Paid' : 'Owing') + '</button>' : '<span class="badge ' + (f.paid ? 'paid' : 'unpaid') + '" style="margin:0">' + (f.paid ? 'Paid' : 'Owing') + '</span>') + '</td>' +
-            (admin ? '<td class="num"><div class="fine-row-actions"><button class="icon-btn" data-edit-fine="' + f.id + '" aria-label="Edit fine">' + ICON.edit + '</button><button class="icon-btn" data-del-fine="' + f.id + '" aria-label="Delete fine">' + ICON.trash + '</button></div></td>' : '') + '</tr>';
+            '<td>' + ('<button class="badge ' + (f.paid ? 'paid' : 'unpaid') + '" style="margin:0;border:0;cursor:pointer" data-toggle-paid="' + f.id + '" title="Toggle paid">' + (f.paid ? 'Paid' : 'Owing') + '</button>') + '</td>' +
+            ('<td class="num"><div class="fine-row-actions"><button class="icon-btn" data-edit-fine="' + f.id + '" aria-label="Edit fine">' + ICON.edit + '</button><button class="icon-btn" data-del-fine="' + f.id + '" aria-label="Delete fine">' + ICON.trash + '</button></div></td>') + '</tr>';
         }).join('') + '</tbody></table></div>'
-        : '<div class="empty"><div class="empty-icon">' + ICON.gavel + '</div><h4>The register is clean</h4><p>No offences have been recorded. The Committee finds this deeply suspicious.</p>' + (admin ? '<button class="btn btn-primary" data-action="add-fine">' + ICON.plus + 'Issue the first fine</button>' : '') + '</div>') +
+        : '<div class="empty"><div class="empty-icon">' + ICON.gavel + '</div><h4>The register is clean</h4><p>No offences have been recorded. The Committee finds this deeply suspicious.</p>' + ('<button class="btn btn-primary" data-action="add-fine">' + ICON.plus + 'Issue the first fine</button>') + '</div>') +
       '</section><section class="card"><h2>Rogues’ Gallery</h2><p class="card-sub">Individual fines leaderboard</p><div style="margin-top:8px">' +
       fs.rows.map(function (r, i) { return '<div class="lb-row"><span class="rank-num">' + (i + 1) + '</span><div><span class="inline-player">' + avatar(r.id, 'sm') + esc(nm(r.id)) + '</span><div class="lb-bar"><i style="width:' + (r.total / maxTot * 100) + '%"></i></div></div><div class="lb-amt">' + money(r.total) + '<small>' + plural(r.count, 'offence') + (r.outstanding ? ' · ' + money(r.outstanding) + ' owing' : '') + '</small></div></div>'; }).join('') +
       '</div><p class="committee-quote">“Ignorance of the tariff is no defence.”</p></section></div>' +
       '<section class="card" style="margin-bottom:18px"><div class="card-head"><div><h2>Tariff of Penalties</h2><p class="card-sub">Standard fines. The Committee may adjust any amount at its discretion.</p></div></div><div class="tariff" style="margin-top:10px">' +
-      cats.map(function (k) { return '<div class="tariff-item' + (k.active ? '' : ' inactive') + '"><span>' + esc(k.name) + '</span><span style="display:flex;gap:8px;align-items:center"><span class="amt">' + money(k.amount) + '</span>' + (admin ? '<button class="icon-btn" data-edit-cat="' + k.id + '" aria-label="Edit ' + esc(k.name) + '">' + ICON.edit + '</button>' : '') + '</span></div>'; }).join('') +
+      cats.map(function (k) { return '<div class="tariff-item' + (k.active ? '' : ' inactive') + '"><span>' + esc(k.name) + '</span><span style="display:flex;gap:8px;align-items:center"><span class="amt">' + money(k.amount) + '</span>' + ('<button class="icon-btn" data-edit-cat="' + k.id + '" aria-label="Edit ' + esc(k.name) + '">' + ICON.edit + '</button>') + '</span></div>'; }).join('') +
       '</div></section></div>';
   }
 
-  function openFine(fineId, defaults) {
-    requireAdmin(function () {
+  function openFine(fineId) {
+    edit(function () {
       var f = fineId ? state.data.fines.filter(function (x) { return x.id === fineId; })[0] : null;
       var cats = state.data.fineCategories.filter(function (c) { return c.active || (f && c.id === f.categoryId); });
-      if (!cats.length) { toast('Create a fine category first.', 'error'); return; }
-      var d = f || Object.assign({ playerId: ids()[0], categoryId: cats[0].id, amount: cats[0].amount, fixtureId: '', notes: '', paid: false }, defaults || {});
-      var fx = seasonFixtures();
+      if (!cats.length) { toast('Add an offence to the tariff first.', 'error'); return; }
+      var latest = E.latestFixture(seasonFixtures());
+      var d = f || { playerId: '', categoryId: cats[0].id, amount: cats[0].amount, fixtureId: latest ? latest.id : '', notes: '', paid: false };
+      var fx = seasonFixtures(), saving = false;
+      function hint(m) {
+        var r = fixtureById($('#fnR', m).value), amt = $('#fnA', m).value;
+        $('#fnHint', m).textContent = (r ? 'Round ' + pad2(r.round) : 'No round') + ' · ' + money(amt) + ($('#fnPaid', m).checked ? ' · paid' : '');
+      }
       openModal({
-        title: f ? 'Amend fine' : 'Issue a fine', sub: 'The Committee’s decision is final (but editable).',
-        body: '<div class="row-2"><div class="field"><label for="fnP">Offender</label><select class="input" id="fnP">' + players().map(function (p) { return '<option value="' + p.id + '"' + (p.id === d.playerId ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select></div>' +
-          '<div class="field"><label for="fnC">Offence</label><select class="input" id="fnC">' + cats.map(function (c) { return '<option value="' + c.id + '"' + (c.id === d.categoryId ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></div></div>' +
-          '<div class="row-2"><div class="field"><label for="fnR">Round</label><select class="input" id="fnR"><option value="">Not tied to a round</option>' + fx.map(function (x) { return '<option value="' + x.id + '"' + (x.id === d.fixtureId ? ' selected' : '') + '>Round ' + pad2(x.round) + (x.date ? ' · ' + fmtDate(x.date) : '') + '</option>'; }).join('') + '</select></div>' +
-          '<div class="field"><label for="fnA">Amount ($)</label><input class="input" id="fnA" type="number" min="0" step="0.5" inputmode="decimal" value="' + esc(d.amount) + '"><div class="field-error" id="fnAErr"></div></div></div>' +
-          '<div class="field"><label for="fnN">Notes</label><textarea class="input" id="fnN" placeholder="Evidence for the prosecution…">' + esc(d.notes || '') + '</textarea></div>' +
-          '<label class="check"><input type="checkbox" id="fnPaid"' + (d.paid ? ' checked' : '') + '> Paid to the treasurer</label>',
-        foot: '<button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="fnSave">' + (f ? 'Save changes' : 'Issue fine') + '</button>',
+        title: f ? 'Correct fine' : 'Issue a fine', sub: 'Pick the offender and the offence. That’s it.',
+        body: HONEYPOT + '<div class="field"><span class="lbl" id="fnPl">Offender</span><div class="pick" role="radiogroup" aria-labelledby="fnPl">' + players().map(function (p) {
+            return '<label class="pick-item"><input type="radio" name="fnP" value="' + p.id + '"' + (p.id === d.playerId ? ' checked' : '') + '>' + avatar(p.id, 'sm') + '<span>' + esc(p.name) + '</span></label>';
+          }).join('') + '</div><div class="field-error" id="fnPErr"></div></div>' +
+          '<div class="field"><label for="fnC">Offence</label><select class="input" id="fnC">' + cats.map(function (c) { return '<option value="' + c.id + '"' + (c.id === d.categoryId ? ' selected' : '') + '>' + esc(c.name) + ' — ' + money(c.amount) + '</option>'; }).join('') + '</select></div>' +
+          '<details class="more"' + (f ? ' open' : '') + '><summary>More options <span class="muted" id="fnHint"></span></summary>' +
+          '<div class="row-2 keep"><div class="field"><label for="fnR">Round</label><select class="input" id="fnR"><option value="">Not tied to a round</option>' + fx.map(function (x) { return '<option value="' + x.id + '"' + (x.id === d.fixtureId ? ' selected' : '') + '>Round ' + pad2(x.round) + (x.date ? ' · ' + fmtDate(x.date) : '') + '</option>'; }).join('') + '</select></div>' +
+          '<div class="field"><label for="fnA">Amount ($)</label><input class="input" id="fnA" type="number" min="0" max="500" step="0.5" inputmode="decimal" value="' + esc(d.amount) + '"><div class="field-error" id="fnAErr"></div></div></div>' +
+          '<div class="field"><label for="fnN">Notes</label><textarea class="input" id="fnN" maxlength="300" style="min-height:60px" placeholder="Evidence for the prosecution…">' + esc(d.notes || '') + '</textarea></div>' +
+          (f ? '' : '<label class="check"><input type="checkbox" id="fnPaid"> Already paid</label>') + '</details>',
+        foot: '<button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="fnSave">' + ICON.gavel + (f ? 'Save changes' : 'Issue fine') + '</button>',
         mount: function (m) {
-          $('#fnC', m).onchange = function () { $('#fnA', m).value = catById(this.value).amount; };
+          if (!$('#fnPaid', m)) { var ghost = document.createElement('input'); ghost.type = 'checkbox'; ghost.id = 'fnPaid'; ghost.hidden = true; ghost.checked = !!d.paid; m.appendChild(ghost); }
+          hint(m);
+          $('.pick', m).onchange = function () { $('#fnPErr', m).textContent = ''; };
+          $('#fnC', m).onchange = function () { $('#fnA', m).value = catById(this.value).amount; hint(m); };
+          $('#fnR', m).onchange = $('#fnA', m).oninput = $('#fnPaid', m).onchange = function () { hint(m); };
           $('#fnSave', m).onclick = async function () {
-            var amt = $('#fnA', m).value;
-            if (amt === '' || !(Number(amt) >= 0)) { $('#fnAErr', m).textContent = 'Enter a valid amount.'; $('#fnA', m).classList.add('invalid'); return; }
-            var payload = { playerId: $('#fnP', m).value, categoryId: $('#fnC', m).value, fixtureId: $('#fnR', m).value || null, amount: Number(amt), notes: $('#fnN', m).value.trim(), paid: $('#fnPaid', m).checked };
-            var b = this; busy(b, true);
+            if (saving) return;
+            if (trapped(m)) { closeModal(); return; }
+            var who = $('input[name="fnP"]:checked', m), amt = $('#fnA', m).value;
+            if (!who) { $('#fnPErr', m).textContent = 'Choose who is being fined.'; return; }
+            if (amt === '' || !(Number(amt) >= 0) || Number(amt) > 500) { $('.more', m).open = true; $('#fnAErr', m).textContent = 'Enter an amount between $0 and $500.'; $('#fnA', m).classList.add('invalid'); return; }
+            var payload = { seasonId: f ? f.seasonId : state.seasonId, playerId: who.value, categoryId: $('#fnC', m).value, fixtureId: $('#fnR', m).value || null, amount: Number(amt), notes: $('#fnN', m).value.trim(), paid: $('#fnPaid', m).checked };
+            var b = this; saving = true; busy(b, true);
             try {
-              if (f) await state.store.updateFine(f.id, payload);
-              else await state.store.addFines([Object.assign({ seasonId: state.seasonId }, payload)]);
-              closeModal(); toast(f ? 'Fine amended.' : nm(payload.playerId) + ' fined ' + money(payload.amount) + '. The Committee thanks you.'); await refresh();
-            } catch (e) { busy(b, false); toast(e.message, 'error'); }
+              if (f) await state.store.updateFine(f.id, payload); else await state.store.addFine(payload);
+              closeModal(); toast(f ? 'Fine corrected.' : nm(payload.playerId) + ' fined ' + money(payload.amount) + '. The Committee thanks you.'); await refresh();
+            } catch (e) { saving = false; busy(b, false); toast(e.message, 'error'); }
           };
         }
       });
     });
   }
   function openCategory(catId) {
-    requireAdmin(function () {
+    edit(function () {
       var c = catId ? catById(catId) : null;
       openModal({
         title: c ? 'Edit offence' : 'New offence', sub: 'Adds to the tariff of penalties.',
@@ -869,520 +764,16 @@
     });
   }
 
-  /* ------------------------------------------------------------------ RECORDS */
-  function renderRecords() {
-    var order = ids();
-    var seasons = state.data.seasons.slice().sort(function (a, b) { return a.number - b.number; });
-    var rec = E.records(order, seasons.map(function (s) { return { season: s, fixtures: seasonFixtures(s.id), fines: seasonFines(s.id), complete: s.status === 'completed' }; }));
-    var multi = seasons.length > 1;
-    function sl(s) { return multi ? seasonLabel(s) + ' · ' : ''; }
-    function names(list, fn) { return esc(listNames(list.map(fn))); }
-    function honour(title, list, holder, value, ctxFn) {
-      if (!list || !list.length) return '<div class="honour empty-honour"><span class="title">' + title + '</span><span class="holder">Awaiting a worthy holder</span><span class="value"></span></div>';
-      return '<div class="honour"><span class="title">' + title + (list.length > 1 ? ' · shared' : '') + '</span><span class="holder">' + holder(list) + '</span><span class="value">' + value(list[0]) + '</span>' + (ctxFn ? '<span class="ctx">' + ctxFn(list) + '</span>' : '') + '</div>';
-    }
-    function uniq(arr) { return arr.filter(function (v, i, x) { return x.indexOf(v) === i; }); }
-    function pairName(pr) { return teamName(pr.slice().sort(function (x, y) { return order.indexOf(x) - order.indexOf(y); })); }
-    function fxCtx(list) { return list.slice(0, 3).map(function (x) { return sl(x.season) + 'Round ' + pad2(x.fixture.round) + (x.fixture.course ? ' · ' + esc(x.fixture.course) : ''); }).join(' / '); }
-    var board =
-      honour('Most championship points (season)', rec.mostPoints, function (l) { return names(l, function (x) { return nm(x.row.id); }); }, function (x) { return x.row.points + ' pts'; }, function (l) { return l.map(function (x) { return esc(seasonLabel(x.season)); }).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(', '); }) +
-      honour('Most victories (season)', rec.mostWins, function (l) { return names(l, function (x) { return nm(x.row.id); }); }, function (x) { return plural(x.row.wins, 'win'); }, function (l) { return l.map(function (x) { return esc(seasonLabel(x.season)); }).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(', '); }) +
-      honour('Longest winning streak', rec.longestStreak, function (l) { return names(l, function (x) { return nm(x.row.id); }); }, function (x) { return plural(x.row.bestStreak, 'round'); }, function (l) { return l.map(function (x) { return esc(seasonLabel(x.season)); }).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(', '); }) +
-      honour('Lowest team gross', rec.lowestGross, function (l) { return uniq(l.map(function (x) { return esc(teamName(x.team)); })).join(' / '); }, function (x) { return x.score; }, fxCtx) +
-      honour('Highest team gross', rec.highestGross, function (l) { return uniq(l.map(function (x) { return esc(teamName(x.team)); })).join(' / '); }, function (x) { return x.score; }, fxCtx) +
-      honour('Biggest winning margin', rec.biggestMargin, function (l) { return uniq(l.map(function (x) { return esc(teamName(x.o.winners)); })).join(' / '); }, function (x) { return plural(x.o.margin, 'stroke'); }, fxCtx) +
-      honour('Best partnership', rec.bestPartnership, function (l) { return l.map(function (x) { return esc(pairName(x.pair)); }).join(' / '); }, function (x) { return pct(x.winPct); }, function (l) { var x = l[0]; return x.wins + 'W ' + x.draws + 'D ' + x.losses + 'L from ' + plural(x.played, 'round') + ' · avg ' + num1(x.avgGross); }) +
-      honour('Worst partnership', rec.worstPartnership, function (l) { return l.map(function (x) { return esc(pairName(x.pair)); }).join(' / '); }, function (x) { return pct(x.winPct); }, function (l) { var x = l[0]; return x.wins + 'W ' + x.draws + 'D ' + x.losses + 'L from ' + plural(x.played, 'round') + ' · avg ' + num1(x.avgGross); }) +
-      honour('Most fines (all time)', rec.mostFines, function (l) { return names(l, function (x) { return nm(x.id); }); }, function (x) { return money(x.total); }, function (l) { return plural(l[0].count, 'offence') + (l.length > 1 ? ' each' : ''); }) +
-      honour('Most championship titles', rec.mostTitles, function (l) { return names(l, function (x) { return nm(x.id); }); }, function (x) { return plural(x.titles, 'title'); });
-    var cur = seasons.filter(function (s) { return s.status !== 'completed'; });
-    var hall = rec.hall.slice().reverse().map(function (h) {
-      return '<div class="hall-row"><div class="yr">' + esc(seasonLabel(h.season)) + '<small>' + (h.season.year || '') + '</small></div><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">' +
-        (h.champions.length ? h.champions.map(function (id) { return '<span class="inline-player">' + avatar(id, 'sm') + '<span style="font-family:var(--serif);font-size:20px">' + esc(nm(id)) + '</span></span>'; }).join('<span class="muted">&amp;</span>') : '<span class="muted">Not all rounds recorded</span>') + '</div>' +
-        '<div style="color:var(--gold-deep)">' + ICON.trophy.replace('<svg', '<svg width="28" height="28"') + '</div></div>';
-    }).join('') + cur.map(function (s) {
-      var t = E.standings(order, seasonFixtures(s.id)); var lead = t.filter(function (r) { return r.rank === 1 && r.points > 0; });
-      var done = seasonFixtures(s.id).filter(E.isCompleted).length;
-      return '<div class="hall-row current"><div class="yr">' + esc(seasonLabel(s)) + '<small>In progress · ' + done + '/' + (s.totalRounds || 12) + '</small></div><div class="muted">' + (lead.length ? 'Current leader' + (lead.length > 1 ? 's' : '') + ': <b style="color:var(--ink)">' + esc(listNames(lead.map(function (r) { return nm(r.id); }))) + '</b> on ' + lead[0].points + ' pts' : 'The trophy awaits its first name.') + '</div>' +
-        (isAdmin() && done >= (s.totalRounds || 12) ? '<button class="btn btn-gold btn-sm" data-complete-season="' + s.id + '">Crown champion</button>' : '<span></span>') + '</div>';
-    }).join('');
-    app.innerHTML = '<div class="page container">' + hero('The Honours Board', 'Records are set only by real results — nothing is written here until it has been earned on the course.', '') +
-      (isAdmin() ? '<div class="toolbar"><span></span><button class="btn btn-cream" data-action="new-season">' + ICON.plus + 'Start a new season</button></div>' : '') +
-      '<section class="honours"><h2>Club Records</h2><div class="rule"></div><div class="honours-grid">' + board + '</div></section>' +
-      '<section class="card" style="margin-bottom:18px"><h2>Hall of Champions</h2><p class="card-sub">Every season’s champion, preserved for posterity</p><div class="hall" style="margin-top:14px">' + (hall || '<div class="empty"><p>No seasons yet.</p></div>') + '</div></section></div>';
-  }
-
-  function openNewSeason() {
-    requireAdmin(function () {
-      var n = state.data.seasons.reduce(function (m, s) { return Math.max(m, s.number); }, 0) + 1;
-      openModal({
-        title: 'Start a new season', sub: 'Creates 12 balanced rounds. Earlier seasons and records are kept.',
-        body: '<div class="row-2"><div class="field"><label for="nsN">Season name</label><input class="input" id="nsN" value="Season ' + pad2(n) + '"></div><div class="field"><label for="nsY">Year</label><input class="input" id="nsY" type="number" value="' + new Date().getFullYear() + '"></div></div>' +
-          '<div class="callout info">Rotation: ' + E.pairings(ids()).map(function (p) { return esc(teamName(p[0])) + ' v ' + esc(teamName(p[1])); }).join(' → ') + ', repeated four times.</div>',
-        foot: '<button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="nsGo">Create season</button>',
-        mount: function (m) {
-          $('#nsGo', m).onclick = async function () {
-            var b = this; busy(b, true, 'Creating…');
-            try { var id = await state.store.createSeason({ name: $('#nsN', m).value.trim(), year: Number($('#nsY', m).value) || null }); closeModal(); await refresh(); if (id) { state.seasonId = id; saveSeasonPref(); } else pickDefaultSeason(true); render(); toast('New season created. Fresh scorecards for everyone.'); }
-            catch (e) { busy(b, false); toast(e.message, 'error'); }
-          };
-        }
-      });
-    });
-  }
-
-  /* ------------------------------------------------------------------ THE TEE SHEET */
-  function compTz() { return cfg.timezone && T.validTimeZone(cfg.timezone) ? cfg.timezone : T.DEFAULT_TZ; }
-  function tzCity(tz) { return String(tz || '').split('/').pop().replace(/_/g, ' '); }
-  function teeUrl() { var base = String(cfg.siteUrl || (location.origin + location.pathname)).replace(/index\.html$/, '').replace(/#.*$/, ''); return base + '#/tee-sheet'; }
-  function myPlayerId() { return state.session && state.session.playerId ? state.session.playerId : null; }
-  function teeReady() { return !state.data.scheduling || state.data.scheduling.ready !== false; }
-  function pollFor(fixtureId) { return T.activePoll(state.data.polls, fixtureId); }
-  function pollById(id) { return (state.data.polls || []).filter(function (p) { return p.id === id; })[0]; }
-  function slotById(id) { var hit = null; (state.data.polls || []).forEach(function (p) { p.slots.forEach(function (s) { if (s.id === id) hit = { poll: p, slot: s }; }); }); return hit; }
-  function agreedSlot(poll) { return poll.slots.filter(function (s) { return s.id === poll.agreedSlotId; })[0] || null; }
-  function slotText(s) { return T.longDate(s.date) + ' · ' + T.windowLabel(s); }
-  var VOTE_LABEL = { available: 'Available', maybe: 'Maybe', unavailable: 'Unavailable' };
-  var VOTE_ICON = { available: ICON.check, maybe: '<svg viewBox="0 0 24 24"><path d="M9 9a3 3 0 1 1 4.5 2.6c-.9.5-1.5 1.2-1.5 2.4M12 17.5v.5"/></svg>', unavailable: ICON.close };
-
-  /** The round the Tee Sheet is about: the first unplayed round with a live poll, else the next round. */
-  function teeFocus(c) {
-    var open = c.fixtures.filter(function (f) { return !E.isCompleted(f); });
-    var withPoll = open.filter(function (f) { return pollFor(f.id); });
-    var chosen = open.filter(function (f) { return f.id === state.teeFixtureId; })[0];
-    return { fixture: chosen || withPoll[0] || open[0] || null, withPoll: withPoll, open: open };
-  }
-
-  function renderTeeSheet() {
-    var c = ctx(), fo = teeFocus(c), f = fo.fixture, admin = isAdmin();
-    var html = '<div class="page container">' + hero('The Tee Sheet', 'Four players. One tee time. Zero excuses.', '');
-    var bar = '';
-    if (MODE === 'demo') bar += '<label class="tee-as">Demo — voting as <select class="season-select" id="demoPlayerSel" style="font-style:normal;font-family:var(--sans);font-size:14px">' + players().map(function (p) { return '<option value="' + p.id + '"' + (p.id === myPlayerId() ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select></label>';
-    else if (myPlayerId()) bar += '<span class="tee-as">' + avatar(myPlayerId(), 'xs') + ' Voting as <b>' + esc(nm(myPlayerId())) + '</b></span>';
-    else if (!state.session) bar += '<button class="btn btn-cream btn-sm" data-tee="sign-in">' + ICON.lock + 'Sign in to vote</button>';
-    else bar += '<span class="tee-as">Signed in, but this login isn’t linked to a player yet.</span>';
-    var chips = fo.withPoll.length > 1 || (f && fo.withPoll.length && !pollFor(f.id)) ? '<div class="chips">' + fo.withPoll.concat(f && !pollFor(f.id) ? [f] : []).map(function (x) { return '<button class="chip' + (f && x.id === f.id ? ' active' : '') + '" data-tee="focus" data-id="' + x.id + '">Round ' + pad2(x.round) + '</button>'; }).join('') + '</div>' : '<span></span>';
-    html += '<div class="toolbar">' + chips + '<div class="btn-row">' + bar + '</div></div>';
-
-    if (!teeReady()) {
-      html += '<div class="card empty"><div class="empty-icon">' + ICON.alert + '</div><h4>The Tee Sheet needs a one-off database update</h4><p>Run <b>migrations/002_tee_sheet.sql</b> in the Supabase SQL Editor (see the README), then refresh. Everything else on the site is unaffected.</p></div>';
-    } else if (!f) {
-      html += '<div class="card empty"><div class="empty-icon">' + ICON.trophy + '</div><h4>Season complete</h4><p>Every round of ' + esc(seasonLabel(c.season)) + ' has been played. Start a new season from the Records page to tee it up again.</p></div>';
-    } else {
-      var poll = pollFor(f.id);
-      if (!poll) html += teeEmpty(f, admin);
-      else if (poll.status === 'polling') html += teePolling(f, poll, c, admin);
-      else if (poll.status === 'agreed') html += teeAgreed(f, poll, c, admin) + teeHistoryDetails(poll, true);
-      else html += teeConfirmed(f, poll, c, admin) + teeHistoryDetails(poll, true);
-    }
-    // earlier polls (cancelled, or for rounds already played)
-    var cur = f ? pollFor(f.id) : null;
-    var past = (state.data.polls || []).filter(function (p) { return p.seasonId === state.seasonId && (!cur || p.id !== cur.id) && (p.status === 'cancelled' || E.isCompleted(fixtureById(p.fixtureId) || {})); })
-      .sort(function (a, b) { return String(b.createdAt).localeCompare(String(a.createdAt)); });
-    if (teeReady() && past.length) html += '<section class="card" style="margin-bottom:18px"><h2>Scheduling History</h2><p class="card-sub">Earlier polls and bookings, kept for the record</p><div style="margin-top:12px">' + past.map(function (p) { return teeHistoryDetails(p, false); }).join('') + '</div></section>';
-    app.innerHTML = html + '</div>';
-  }
-
-  function teeEmpty(f, admin) {
-    return '<div class="card empty tee-empty"><div class="empty-icon">' + ICON.calendar + '</div><p class="tee-kicker" style="margin-bottom:6px">Round ' + pad2(f.round) + ' · ' + esc(teamName(f.teamA)) + ' v ' + esc(teamName(f.teamB)) + '</p>' +
-      '<h4>Nothing on the tee sheet. Time to organise the next round.</h4><p>' + (f.date ? 'Pencilled in for ' + T.longDate(f.date) + (f.course ? ' at ' + esc(f.course) : '') + ', but nobody has been asked yet.' : 'Propose a few dates, share the link in the group chat and let the website find the winner.') + '</p>' +
-      (admin ? '<button class="btn btn-primary" data-tee="create" data-id="' + f.id + '">' + ICON.plus + 'Open a poll for Round ' + pad2(f.round) + '</button>' : (MODE === 'live' && !state.session ? '<button class="btn btn-primary" data-tee="sign-in-admin">' + ICON.lock + 'Organiser sign in</button>' : '<p class="small muted">An organiser can open the poll.</p>')) + '</div>';
-  }
-
-  function progressBar(n, total) { return '<div class="tee-progress" role="progressbar" aria-valuemin="0" aria-valuemax="' + total + '" aria-valuenow="' + n + '"><i style="width:' + (total ? n / total * 100 : 0) + '%"></i></div>'; }
-  function deadlineText(poll) { return poll.deadline ? T.formatInstant(poll.deadline, poll.timezone) : ''; }
-
-  function teePolling(f, poll, c, admin) {
-    var ids = c.ids, pr = T.progress(poll, ids), me = myPlayerId(), open = T.votingOpen(poll);
-    var url = teeUrl();
-    var shareMsg = T.pollMessage({ round: f.round, deadlineText: deadlineText(poll), responded: pr.count, total: pr.total, url: url });
-    var people = ids.map(function (id) {
-      var done = pr.responded.indexOf(id) !== -1;
-      return '<li class="tee-person' + (done ? ' done' : '') + '">' + avatar(id, 'sm') + '<span class="nm">' + esc(nm(id)) + '</span>' +
-        (done ? '<span class="tee-tick">' + ICON.check + '<span class="visually-hidden">Responded</span></span>'
-          : '<span class="tee-wait">Awaiting response</span><button class="btn btn-ghost btn-sm" data-tee="remind" data-id="' + poll.id + '" data-player="' + id + '">Copy Reminder</button>') + '</li>';
-    }).join('');
-    var status = '<section class="card tee-status" aria-labelledby="teeStatusT"><p class="tee-kicker">Round ' + pad2(f.round) + ' — Find a date</p>' +
-      '<h2 id="teeStatusT">' + (pr.complete ? 'All four have responded' : 'Awaiting availability') + '</h2>' +
-      '<p class="card-sub">' + esc(seasonLabel(c.season)) + ' · ' + esc(teamName(f.teamA)) + ' v ' + esc(teamName(f.teamB)) + '</p>' +
-      '<p class="tee-count"><b>' + pr.count + ' of ' + pr.total + '</b> players responded</p>' + progressBar(pr.count, pr.total) +
-      '<ul class="tee-people">' + people + '</ul>' +
-      (poll.deadline ? '<p class="tee-deadline">' + ICON.calendar + '<span>' + (T.deadlinePassed(poll) ? (poll.closeAtDeadline ? 'Voting closed ' : 'Deadline was ') : 'Vote by ') + '<b>' + deadlineText(poll) + '</b> <span class="muted">(' + esc(tzCity(poll.timezone)) + ' time)</span></span></p>' : '') +
-      (poll.notes ? '<p class="committee-quote" style="font-size:15px">' + esc(poll.notes) + '</p>' : '') +
-      '<div class="btn-row" style="margin-top:16px"><a class="btn btn-primary" target="_blank" rel="noopener" href="' + esc(T.whatsappUrl(shareMsg)) + '" data-share="poll">' + ICON.whatsapp + 'Share to WhatsApp</a>' +
-      '<button class="btn btn-ghost" data-tee="copy-link">' + ICON.copy + 'Copy link</button></div>' +
-      (admin ? '<div class="tee-admin-row"><button class="btn btn-ghost btn-sm" data-tee="add-slot" data-id="' + poll.id + '">' + ICON.plus + 'Add a date</button><button class="btn btn-ghost btn-sm" data-tee="edit-poll" data-id="' + poll.id + '">' + ICON.edit + 'Deadline & notes</button><button class="btn btn-danger btn-sm" data-tee="cancel-poll" data-id="' + poll.id + '">Cancel poll</button></div>' : '') +
-      '</section>';
-
-    var ranked = T.rankSlots(poll.slots, ids);
-    var best = ranked[0];
-    var banner = '';
-    if (T.noCommonDate(poll, ids)) banner = '<div class="callout tee-banner"><b>No common date yet. Add another option.</b>' + (admin ? ' <button class="btn btn-primary btn-sm" data-tee="add-slot" data-id="' + poll.id + '">' + ICON.plus + 'Add a date</button>' : '') + '</div>';
-    else if (best && best.c.tier <= 3) {
-      var same = ranked.filter(function (x) { return x.c.tier === best.c.tier; });
-      banner = '<div class="win-banner tee-banner ' + best.c.key + '"><span class="trophy">' + (best.c.tier === 1 ? ICON.trophy : ICON.flag) + '</span><div><div class="t1">' + esc(best.c.label) + '</div><div class="t2">' + same.slice(0, 3).map(function (x) { return esc(T.shortDate(x.slot.date) + ' · ' + T.windowLabel(x.slot)); }).join('  /  ') + '</div></div></div>';
-    }
-    var view = state.teeView === 'best' ? 'best' : 'date';
-    var list = view === 'best' ? ranked : T.chronological(poll.slots).map(function (s) { return { slot: s, c: T.classifySlot(s, ids) }; });
-    var notice = '';
-    if (!open) notice = '<div class="callout">Voting closed at the deadline. An organiser can extend it.</div>';
-    else if (MODE === 'live' && !state.session) notice = '<div class="callout info tee-signin">Sign in to add your availability. <button class="btn btn-primary btn-sm" data-tee="sign-in">' + ICON.lock + 'Sign in</button></div>';
-    var slotsHtml = list.map(function (x) { return teeSlotCard(poll, x.slot, x.c, me, open, admin, ranked); }).join('');
-    var slots = '<section class="card tee-slots" aria-labelledby="teeSlotsT"><div class="card-head"><div><p class="tee-kicker">Round ' + pad2(f.round) + ' · ' + pr.count + ' of ' + pr.total + ' responded</p><h2 id="teeSlotsT">When could we play?</h2><p class="card-sub">' + (me && open ? 'Tap your answer for each date — it saves straight away.' : 'Proposed dates and who can make them.') + '</p></div>' +
-      '<div class="tee-view" role="tablist"><button class="' + (view === 'date' ? 'on' : '') + '" data-tee="view" data-id="date" role="tab" aria-selected="' + (view === 'date') + '">By date</button><button class="' + (view === 'best' ? 'on' : '') + '" data-tee="view" data-id="best" role="tab" aria-selected="' + (view === 'best') + '">Best first</button></div></div>' +
-      banner + notice + (slotsHtml || '<div class="empty"><p>No dates proposed yet.</p></div>') + '</section>';
-    var mustVote = me && open && pr.responded.indexOf(me) === -1;   // on a phone, put the voting first for whoever still owes an answer
-    return '<div class="grid tee-grid' + (mustVote ? ' vote-first' : '') + '">' + status + slots + '</div>';
-  }
-
-  function voteDots(slot, cls, ids) {
-    return '<div class="tee-votes">' + ids.map(function (id) {
-      var v = slot.votes[id] || 'none';
-      return '<span class="tee-voter ' + v + '" title="' + esc(nm(id)) + ': ' + (VOTE_LABEL[v] || 'Awaiting response') + '">' + avatar(id, 'sm') + '<i>' + (VOTE_ICON[v] || '') + '</i><span class="vn">' + esc(nm(id)) + '</span><span class="visually-hidden">: ' + (VOTE_LABEL[v] || 'Awaiting response') + '</span></span>';
-    }).join('') + '</div>';
-  }
-  function slotSummary(c) {
-    var bits = ['<b>' + c.a + ' of ' + c.total + '</b> available'];
-    if (c.m) bits.push(c.m + ' maybe');
-    if (c.u) bits.push(c.u + ' unavailable');
-    if (c.missing) bits.push('awaiting ' + listNames(c.missingIds.map(nm)));
-    return bits.join(' · ');
-  }
-  function teeSlotCard(poll, s, c, me, open, admin, ranked) {
-    var mine = me ? s.votes[me] : null;
-    var rank = ranked.findIndex(function (x) { return x.slot.id === s.id; }) + 1;
-    var buttons = me && open ? '<div class="tee-choice" role="group" aria-label="Your availability for ' + esc(T.shortDate(s.date)) + '">' + T.STATUSES.map(function (st) {
-      return '<button type="button" class="' + st + (mine === st ? ' on' : '') + '" data-tee="vote" data-slot="' + s.id + '" data-status="' + st + '" aria-pressed="' + (mine === st) + '">' + VOTE_ICON[st] + '<span>' + (st === 'unavailable' ? 'Can’t' : VOTE_LABEL[st]) + '</span></button>';
-    }).join('') + '</div>' : '';
-    var adminRow = admin ? '<div class="tee-slot-admin">' +
-      (c.lockable ? '<button class="btn btn-gold btn-sm" data-tee="lock" data-id="' + poll.id + '" data-slot="' + s.id + '">' + ICON.lock + 'Lock In Date</button>' : '<span class="small muted">Can’t be locked in while someone is unavailable</span>') +
-      '<span style="margin-left:auto;display:flex;gap:6px"><button class="icon-btn' + (s.preferred ? ' on' : '') + '" data-tee="prefer" data-slot="' + s.id + '" aria-label="' + (s.preferred ? 'Remove preferred mark' : 'Mark as preferred') + '" aria-pressed="' + !!s.preferred + '">' + ICON.star + '</button>' +
-      '<button class="icon-btn" data-tee="correct" data-slot="' + s.id + '" aria-label="Correct a vote">' + ICON.edit + '</button>' +
-      '<button class="icon-btn" data-tee="remove-slot" data-slot="' + s.id + '" aria-label="Remove this date">' + ICON.trash + '</button></span></div>' : '';
-    return '<article class="tee-slot ' + c.key + '" data-slot-id="' + s.id + '"><header><div><h3>' + esc(T.slotLabel(s)) + '</h3>' +
-      (s.preferred ? '<span class="tee-pref">' + ICON.star + 'Organiser’s pick</span>' : '') + (s.notes ? '<p class="small muted" style="margin:2px 0 0">' + esc(s.notes) + '</p>' : '') + '</div>' +
-      '<span class="tee-badge ' + c.key + '">' + (c.tier <= 3 && rank === 1 ? '★ ' : '') + esc(c.label) + '</span></header>' +
-      voteDots(s, '', ctxIds()) + '<p class="tee-sum">' + slotSummary(c) + '</p>' + buttons + adminRow + '</article>';
-  }
-  function ctxIds() { return ids(); }
-
-  function playersLine(idsList) { return idsList.map(function (id) { return esc(nm(id)); }).join(' · '); }
-
-  function teeAgreed(f, poll, c, admin) {
-    var s = agreedSlot(poll), ids = c.ids, pending = T.pendingAgreement(poll, ids), me = myPlayerId();
-    var msg = T.agreedMessage({ round: f.round, dateText: s ? T.longDate(s.date) : '', windowText: s ? T.windowLabel(s) : '', pendingNames: pending.map(nm), url: teeUrl() });
-    var people = ids.map(function (id) {
-      var a = poll.agreements.filter(function (x) { return x.playerId === id; })[0];
-      var vote = s ? s.votes[id] : null;
-      return '<li class="tee-person' + (a ? ' done' : '') + '">' + avatar(id, 'sm') + '<span class="nm">' + esc(nm(id)) + '</span>' +
-        (a ? '<span class="tee-wait" style="color:var(--ok)">' + (a.via === 'vote' ? 'Available' : a.via === 'admin' ? 'Confirmed (via organiser)' : 'Confirmed') + '</span><span class="tee-tick">' + ICON.check + '</span>'
-          : '<span class="tee-wait">' + (vote === 'maybe' ? 'Said maybe — needs to confirm' : 'Hasn’t answered — needs to confirm') + '</span>' +
-            (me === id ? '<button class="btn btn-primary btn-sm" data-tee="im-in" data-id="' + poll.id + '">' + ICON.check + 'I’m in</button>' : (admin ? '<button class="btn btn-ghost btn-sm" data-tee="mark-in" data-id="' + poll.id + '" data-player="' + id + '">Mark confirmed</button>' : ''))) + '</li>';
-    }).join('');
-    return '<section class="card tee-hero-card agreed" aria-labelledby="teeAgT"><div class="tee-hero-main"><p class="tee-kicker">Round ' + pad2(f.round) + ' — Date agreed</p>' +
-      '<h2 id="teeAgT" class="tee-date">' + (s ? T.longDate(s.date) : 'Date agreed') + '</h2>' +
-      '<p class="tee-time">' + (s ? esc(T.windowLabel(s)) : '') + '</p>' +
-      '<p class="tee-course"><span class="badge next" style="margin:0">Booking pending</span> <span class="muted">' + (f.course ? 'Pencilled for ' + esc(f.course) : 'Course to be booked') + '</span></p>' +
-      '<p class="tee-count" style="margin-top:14px">' + (pending.length ? '<b>Agreed by ' + (ids.length - pending.length) + ' of ' + ids.length + '</b> — awaiting ' + esc(listNames(pending.map(nm))) : '<b>Agreed by all four.</b> Over to the organiser to book the course.') + '</p>' +
-      '<div class="btn-row" style="margin-top:14px"><a class="btn btn-primary" target="_blank" rel="noopener" href="' + esc(T.whatsappUrl(msg)) + '" data-share="agreed">' + ICON.whatsapp + 'Share to WhatsApp</a>' +
-      (admin ? '<button class="btn btn-gold" data-tee="confirm-tee" data-id="' + poll.id + '">' + ICON.flag + 'Confirm Tee Time</button><button class="btn btn-ghost" data-tee="reopen" data-id="' + poll.id + '">Reopen voting</button>' : '') + '</div>' +
-      (admin && pending.length ? '<p class="small muted" style="margin:10px 0 0">The tee time can be confirmed once all four are in.</p>' : '') + '</div>' +
-      '<ul class="tee-people tee-hero-side">' + people + '</ul></section>';
-  }
-
-  function teeConfirmed(f, poll, c, admin) {
-    var ids = c.ids;
-    var msg = T.confirmedMessage({ round: f.round, course: poll.course, teeDate: poll.teeDate, teeTime: poll.teeTime, names: ids.map(nm), url: teeUrl() });
-    return '<section class="card tee-hero-card confirmed" aria-labelledby="teeCfT"><div class="tee-hero-main"><p class="tee-kicker">Round ' + pad2(f.round) + ' — Confirmed <span class="tee-badge perfect" style="margin-left:8px">' + ICON.check + 'Tee time confirmed</span></p>' +
-      '<h2 id="teeCfT" class="tee-date">' + T.longDate(poll.teeDate) + '</h2>' +
-      '<p class="tee-time">' + T.time12(poll.teeTime) + ' <span class="muted" style="font-size:14px;font-family:var(--sans)">' + esc(tzCity(poll.timezone)) + ' time</span></p>' +
-      '<p class="tee-course">' + ICON.golf + '<span>' + esc(poll.course) + '</span></p>' +
-      '<p class="tee-players">' + playersLine(ids) + '</p>' +
-      (poll.bookingRef || poll.bookingNotes ? '<p class="small muted" style="margin:8px 0 0">' + (poll.bookingRef ? 'Booking ref <b style="color:var(--ink)">' + esc(poll.bookingRef) + '</b>' : '') + (poll.bookingRef && poll.bookingNotes ? ' · ' : '') + esc(poll.bookingNotes || '') + '</p>' : '') +
-      '<div class="btn-row" style="margin-top:16px"><button class="btn btn-primary" data-tee="ics" data-id="' + poll.id + '">' + ICON.calendar + 'Add to Calendar</button>' +
-      '<a class="btn btn-ghost" target="_blank" rel="noopener" href="' + esc(T.whatsappUrl(msg)) + '" data-share="confirmed">' + ICON.whatsapp + 'Share to WhatsApp</a>' +
-      (navigator.share ? '<button class="btn btn-ghost" data-tee="native-share" data-id="' + poll.id + '">' + ICON.share + 'Share…</button>' : '') + '</div>' +
-      (admin ? '<div class="tee-admin-row"><button class="btn btn-ghost btn-sm" data-tee="confirm-tee" data-id="' + poll.id + '">' + ICON.edit + 'Edit booking</button><button class="btn btn-ghost btn-sm" data-tee="reopen" data-id="' + poll.id + '">Reopen scheduling</button></div>' : '') + '</div>' +
-      '<div class="tee-hero-side tee-foursome">' + ids.map(function (id) { return '<span class="tee-voter available">' + avatar(id, 'lg') + '<i>' + ICON.check + '</i><span class="vn">' + esc(nm(id)) + '</span></span>'; }).join('') + '</div></section>';
-  }
-
-  var EVENT_TEXT = {
-    poll_opened: function (d) { return 'Poll opened' + (d.slots ? ' with ' + plural(d.slots, 'date') : ''); },
-    poll_updated: function () { return 'Deadline or notes updated'; },
-    slot_added: function (d) { return 'Date added: ' + T.shortDate(d.date); },
-    slot_removed: function (d) { return 'Date removed: ' + T.shortDate(d.date); },
-    vote_corrected: function (d) { return nm(d.player) + '’s vote set to ' + (VOTE_LABEL[d.status] || d.status) + (d.date ? ' for ' + T.shortDate(d.date) : '') + ' by an organiser'; },
-    date_agreed: function (d) { return 'Date locked in: ' + T.shortDate(d.date); },
-    player_confirmed: function (d) { return nm(d.player) + ' confirmed' + (d.via === 'admin' ? ' (recorded by an organiser)' : ''); },
-    tee_time_confirmed: function (d) { return 'Tee time confirmed: ' + T.shortDate(d.tee_date) + ', ' + T.time12(String(d.tee_time || '').slice(0, 5)) + ' at ' + d.course; },
-    booking_amended: function (d) { return 'Booking changed to ' + T.shortDate(d.tee_date) + ', ' + T.time12(String(d.tee_time || '').slice(0, 5)) + ' at ' + d.course; },
-    reopened: function (d) { return 'Scheduling reopened' + (d.from === 'confirmed' && d.tee_date ? ' (was ' + T.shortDate(d.tee_date) + ', ' + T.time12(String(d.tee_time || '').slice(0, 5)) + ' at ' + d.course + ')' : d.agreed_date ? ' (was agreed for ' + T.shortDate(d.agreed_date) + ')' : ''); },
-    cancelled: function () { return 'Poll cancelled'; }
-  };
-  function teeHistoryDetails(poll, withCard) {
-    var f = fixtureById(poll.fixtureId) || { round: '?' }, idsL = ids();
-    var label = { polling: 'Voting open', agreed: 'Date agreed', confirmed: 'Confirmed', cancelled: 'Cancelled' }[poll.status];
-    var rows = T.chronological(poll.slots).map(function (s) {
-      var c = T.classifySlot(s, idsL);
-      return '<tr' + (s.id === poll.agreedSlotId ? ' class="agreed-row"' : '') + '><td><b>' + esc(T.shortDate(s.date)) + '</b><div class="small muted">' + esc(T.windowLabel(s)) + (s.id === poll.agreedSlotId ? ' · chosen' : '') + '</div></td>' +
-        idsL.map(function (id) { var v = s.votes[id] || 'none'; return '<td class="tee-cell ' + v + '" title="' + esc(nm(id)) + ': ' + (VOTE_LABEL[v] || 'No reply') + '">' + (VOTE_ICON[v] || '–') + '<span class="visually-hidden">' + (VOTE_LABEL[v] || 'No reply') + '</span></td>'; }).join('') +
-        '<td class="hide-sm"><span class="tee-badge ' + c.key + '">' + esc(c.label) + '</span></td></tr>';
-    }).join('');
-    var events = poll.events.slice().sort(function (a, b) { return String(a.at).localeCompare(String(b.at)); }).map(function (e) {
-      var fn = EVENT_TEXT[e.type];
-      return '<li><span>' + esc(T.formatInstant(e.at, poll.timezone)) + '</span><span>' + esc(fn ? fn(e.data || {}) : e.type) + (e.playerId && ['player_confirmed', 'vote_corrected'].indexOf(e.type) === -1 ? ' <span class="muted">· ' + esc(nm(e.playerId)) + '</span>' : '') + '</span></li>';
-    }).join('');
-    var inner = '<details class="tee-history"><summary><span><b>' + (withCard ? 'Poll history' : 'Round ' + pad2(f.round)) + '</b> <span class="muted">· ' + label + (poll.status === 'confirmed' ? ' · ' + esc(T.shortDate(poll.teeDate) + ', ' + T.time12(poll.teeTime) + ' · ' + poll.course) : '') + ' · ' + plural(poll.slots.length, 'date') + ' proposed</span></span>' + ICON.arrow + '</summary>' +
-      (rows ? '<div class="table-wrap"><table class="data-table tee-table"><thead><tr><th>Date</th>' + idsL.map(function (id) { return '<th style="text-align:center">' + esc(nm(id)) + '</th>'; }).join('') + '<th class="hide-sm">Outcome</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '') +
-      (events ? '<ul class="confirm-list tee-log">' + events + '</ul>' : '') + '</details>';
-    return withCard ? '<section class="card" style="margin-bottom:18px">' + inner + '</section>' : inner;
-  }
-
-  /* ---- Tee Sheet actions ---- */
-  function requirePlayer(fn) {
-    if (myPlayerId()) return fn();
-    if (MODE === 'live' && !state.session) return openSignIn(fn, 'player');
-    toast('This login isn’t linked to a player. Ask an organiser to link it (see README).', 'error');
-  }
-  async function teeDo(promise, okMsg, btn) {
-    if (btn) busy(btn, true, 'Saving…');
-    try { await promise; closeModal(); if (okMsg) toast(okMsg); await refresh(); return true; }
-    catch (e) { if (btn) busy(btn, false); toast(e.message || 'Something went wrong.', 'error'); await refresh(); return false; }
-  }
-  function copyText(text, okMsg) {
-    function done() { toast(okMsg || 'Copied.'); }
-    function legacy() { var ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); done(); } catch (e) { toast('Could not copy — long-press to copy instead.', 'error'); } ta.remove(); }
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, legacy); else legacy();
-  }
-  var votePending = {};
-  function castVote(slotId, status) {
-    requirePlayer(function () {
-      var hit = slotById(slotId), me = myPlayerId(); if (!hit) return;
-      var before = hit.slot.votes[me], wasDone = T.progress(hit.poll, ids()).responded.indexOf(me) !== -1;
-      if (before === status) return;
-      hit.slot.votes[me] = status;                     // optimistic — feels instant on a phone
-      render();
-      var token = votePending[slotId] = {};
-      state.store.castVote(slotId, status).then(function () {
-        if (votePending[slotId] !== token) return;      // a newer tap superseded this one
-        delete votePending[slotId];
-        var pr = T.progress(hit.poll, ids());
-        if (!wasDone && pr.responded.indexOf(me) !== -1) toast('All done, ' + nm(me) + '. ' + pr.count + ' of ' + pr.total + ' have responded.');
-        if (!Object.keys(votePending).length) refresh();
-      }).catch(function (e) {
-        delete votePending[slotId];
-        toast(e.message || 'Could not save your vote.', 'error'); refresh();
-      });
-    });
-  }
-
-  function slotFields(i, s) {
-    return '<div class="tee-slot-line" data-i="' + i + '"><input class="input" type="date" data-k="date" value="' + esc(s.date || '') + '" aria-label="Date">' +
-      '<select class="input" data-k="window" aria-label="Time window">' + Object.keys(T.WINDOWS).map(function (w) { return '<option value="' + w + '"' + (w === s.window ? ' selected' : '') + '>' + T.WINDOWS[w] + '</option>'; }).join('') + '</select>' +
-      '<input class="input" type="time" data-k="startTime" value="' + esc(s.startTime || '') + '" aria-label="Start time"' + (s.window === 'time' ? '' : ' hidden') + '>' +
-      '<input class="input tl-note" data-k="notes" value="' + esc(s.notes || '') + '" placeholder="Note (optional)" aria-label="Note">' +
-      '<button type="button" class="icon-btn" data-rm="' + i + '" aria-label="Remove date">' + ICON.trash + '</button></div>';
-  }
-  function bindSlotLines(box, list, redraw) {
-    box.oninput = box.onchange = function (e) {
-      var line = e.target.closest('.tee-slot-line'); if (!line || !e.target.dataset.k) return;
-      var s = list[+line.dataset.i]; s[e.target.dataset.k] = e.target.value;
-      if (e.target.dataset.k === 'window') { var t = $('[data-k="startTime"]', line); t.hidden = s.window !== 'time'; if (s.window === 'time' && !s.startTime) { s.startTime = '07:30'; t.value = '07:30'; } }
-    };
-    box.onclick = function (e) { var b = e.target.closest('[data-rm]'); if (!b) return; list.splice(+b.dataset.rm, 1); redraw(); };
-  }
-  function isoAdd(iso, days) { var p = iso.split('-'); var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + days)); return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate()); }
-  function nextWeekends(n) {
-    var today = T.utcToZoned(new Date(), compTz()).date, out = [], d = isoAdd(today, 1);
-    while (out.length < n * 2) { var wd = new Date(d + 'T00:00:00Z').getUTCDay(); if (wd === 6 || wd === 0) out.push(d); d = isoAdd(d, 1); }
-    return out;
-  }
-  function validateSlots(list) {
-    var seen = {};
-    if (!list.length) return 'Propose at least one date.';
-    for (var i = 0; i < list.length; i++) {
-      var errs = T.validateSlot(list[i]); if (errs.length) return 'Date ' + (i + 1) + ': ' + errs[0];
-      var k = T.slotKey(list[i]); if (seen[k]) return 'Date ' + (i + 1) + ' is a duplicate.'; seen[k] = 1;
-    }
-    return '';
-  }
-  function deadlineFields(poll, tz) {
-    var z = poll && poll.deadline ? T.utcToZoned(poll.deadline, tz) : { date: '', time: '18:00' };
-    return '<div class="row-2 keep"><div class="field"><label for="tpDd">Vote by <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:500">(optional)</span></label><input class="input" type="date" id="tpDd" value="' + z.date + '"></div>' +
-      '<div class="field"><label for="tpDt">Time (' + esc(tzCity(tz)) + ')</label><input class="input" type="time" id="tpDt" value="' + z.time + '"></div></div>' +
-      '<label class="check"><input type="checkbox" id="tpStrict"' + (poll && poll.closeAtDeadline ? ' checked' : '') + '> Close voting at the deadline <span class="muted small">(otherwise it’s just a nudge)</span></label>';
-  }
-  function readDeadline(m, tz) { var d = $('#tpDd', m).value, t = $('#tpDt', m).value || '18:00'; return d ? T.zonedToUtc(d, t, tz).toISOString() : null; }
-
-  function openPollCreate(fixtureId) {
-    requireAdmin(function () {
-      var c = ctx(), tz = compTz();
-      var rounds = c.fixtures.filter(function (f) { return !E.isCompleted(f) && !pollFor(f.id); });
-      if (!rounds.length) { toast('Every upcoming round already has a poll.', 'error'); return; }
-      var form = { fixtureId: rounds.some(function (f) { return f.id === fixtureId; }) ? fixtureId : rounds[0].id, slots: nextWeekends(2).map(function (d) { return { date: d, window: 'morning', startTime: '', notes: '' }; }) };
-      var modal = openModal({ title: 'Open a scheduling poll', body: '', wide: true });
-      function draw() {
-        modal.draw({
-          title: 'Open a scheduling poll', sub: 'Propose a few dates. Players vote Available, Maybe or Unavailable.', wide: true,
-          body: '<div class="field"><label for="tpRound">Round</label><select class="input" id="tpRound">' + rounds.map(function (f) { return '<option value="' + f.id + '"' + (f.id === form.fixtureId ? ' selected' : '') + '>Round ' + pad2(f.round) + ' — ' + esc(teamName(f.teamA)) + ' v ' + esc(teamName(f.teamB)) + '</option>'; }).join('') + '</select></div>' +
-            '<div class="section-label" style="margin-top:4px"><span>Proposed dates</span><button type="button" class="btn btn-ghost btn-sm" id="tpAdd">' + ICON.plus + 'Add a date</button></div>' +
-            '<div id="tpSlots">' + form.slots.map(function (s, i) { return slotFields(i, s); }).join('') + '</div>' +
-            '<div class="field-error" id="tpErr" role="alert" style="margin-bottom:10px"></div>' + deadlineFields(null, tz) +
-            '<div class="field" style="margin-top:8px"><label for="tpNotes">Notes <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:500">(optional)</span></label><textarea class="input" id="tpNotes" style="min-height:60px" placeholder="Course ideas, who’s driving…">' + esc(form.notes || '') + '</textarea></div>' +
-            '<p class="small muted" style="margin:0">Dates and times are in ' + esc(tzCity(tz)) + ' time (' + esc(tz) + ').</p>',
-          foot: '<button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="tpGo">Open the poll</button>',
-          mount: function (m) {
-            $('#tpRound', m).onchange = function () { form.fixtureId = this.value; };
-            $('#tpNotes', m).oninput = function () { form.notes = this.value; };
-            $('#tpAdd', m).onclick = function () { var last = form.slots[form.slots.length - 1]; form.slots.push({ date: last && last.date ? isoAdd(last.date, 7) : '', window: last ? last.window : 'morning', startTime: last ? last.startTime : '', notes: '' }); form.notes = $('#tpNotes', m).value; draw(); };
-            bindSlotLines($('#tpSlots', m), form.slots, draw);
-            $('#tpGo', m).onclick = function () {
-              var err = validateSlots(form.slots); if (err) { $('#tpErr', m).textContent = err; return; }
-              var f = fixtureById(form.fixtureId);
-              teeDo(state.store.createPoll({ fixtureId: form.fixtureId, deadline: readDeadline(m, tz), closeAtDeadline: $('#tpStrict', m).checked, notes: $('#tpNotes', m).value.trim(), timezone: tz, slots: form.slots }), 'Round ' + pad2(f.round) + ' is on the tee sheet. Share it with the group.', this)
-                .then(function (ok) { if (ok) { state.teeFixtureId = form.fixtureId; render(); } });
-            };
-          }
-        });
-      }
-      draw();
-    });
-  }
-  function openSlotAdd(pollId) {
-    requireAdmin(function () {
-      var poll = pollById(pollId), last = T.chronological(poll.slots).pop();
-      var s = { date: last ? isoAdd(last.date, 7) : '', window: 'morning', startTime: '', notes: '' }, list = [s];
-      openModal({
-        title: 'Add a date', sub: 'Everyone will need to answer the new option.',
-        body: '<div id="tpSlots">' + slotFields(0, s) + '</div><div class="field-error" id="tpErr" role="alert"></div>',
-        foot: '<button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="tpGo">Add date</button>',
-        mount: function (m) {
-          $('[data-rm]', m).hidden = true; bindSlotLines($('#tpSlots', m), list, function () {});
-          $('#tpGo', m).onclick = function () { var e = T.validateSlot(s); if (e.length) { $('#tpErr', m).textContent = e[0]; return; } teeDo(state.store.addSlot(pollId, s), T.shortDate(s.date) + ' added to the tee sheet.', this); };
-        }
-      });
-    });
-  }
-  function openPollEdit(pollId) {
-    requireAdmin(function () {
-      var poll = pollById(pollId);
-      openModal({
-        title: 'Deadline & notes', body: deadlineFields(poll, poll.timezone) + '<div class="field" style="margin-top:8px"><label for="tpNotes">Notes</label><textarea class="input" id="tpNotes" style="min-height:60px">' + esc(poll.notes || '') + '</textarea></div>',
-        foot: '<button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="tpGo">Save</button>',
-        mount: function (m) { $('#tpGo', m).onclick = function () { teeDo(state.store.updatePoll(pollId, { deadline: readDeadline(m, poll.timezone), closeAtDeadline: $('#tpStrict', m).checked, notes: $('#tpNotes', m).value.trim() }), 'Poll updated.', this); }; }
-      });
-    });
-  }
-  function openVoteCorrect(slotId) {
-    requireAdmin(function () {
-      var hit = slotById(slotId);
-      openModal({
-        title: 'Correct a vote', sub: esc(slotText(hit.slot)) + ' · logged in the poll history',
-        body: '<div class="callout">Only do this when the player has asked you to. Everyone can see that an organiser changed it.</div><div class="row-2 keep"><div class="field"><label for="vcP">Player</label><select class="input" id="vcP">' + players().map(function (p) { return '<option value="' + p.id + '">' + esc(p.name) + ' — ' + (VOTE_LABEL[hit.slot.votes[p.id]] || 'no reply') + '</option>'; }).join('') + '</select></div>' +
-          '<div class="field"><label for="vcS">Availability</label><select class="input" id="vcS">' + T.STATUSES.map(function (s) { return '<option value="' + s + '">' + VOTE_LABEL[s] + '</option>'; }).join('') + '</select></div></div>',
-        foot: '<button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="vcGo">Save vote</button>',
-        mount: function (m) { $('#vcGo', m).onclick = function () { teeDo(state.store.adminSetVote(slotId, $('#vcP', m).value, $('#vcS', m).value), 'Vote updated.', this); }; }
-      });
-    });
-  }
-  function lockIn(pollId, slotId) {
-    requireAdmin(function () {
-      var hit = slotById(slotId), c = T.classifySlot(hit.slot, ids());
-      var need = c.needsConfirmation.map(nm);
-      confirmDialog('Lock in ' + esc(T.shortDate(hit.slot.date)) + '?', '<b>' + esc(slotText(hit.slot)) + '</b> — ' + esc(c.label.toLowerCase()) + '. Voting closes and the date is marked as agreed.' +
-        (need.length ? '<br><br>' + esc(listNames(need)) + ' didn’t say “Available”, so ' + (need.length > 1 ? 'they’ll each' : 'they’ll') + ' need to tap <b>I’m in</b> before the tee time can be confirmed.' : '<br><br>All four said they’re available.'), 'Lock In Date').then(function (ok) {
-        if (ok) teeDo(state.store.lockIn(pollId, slotId), 'Date agreed: ' + T.longDate(hit.slot.date) + '. Now book the course.');
-      });
-    });
-  }
-  function openConfirmTee(pollId) {
-    requireAdmin(function () {
-      var poll = pollById(pollId), f = fixtureById(poll.fixtureId), s = agreedSlot(poll), editing = poll.status === 'confirmed';
-      var d = { course: poll.course || f.course || '', date: poll.teeDate || (s ? s.date : ''), time: poll.teeTime || (s ? T.suggestedStart(s) : '08:00'), dur: poll.durationMinutes || T.DEFAULT_DURATION };
-      var durs = [240, 270, 300, 330]; if (durs.indexOf(d.dur) === -1) durs.push(d.dur);
-      openModal({
-        title: editing ? 'Edit booking' : 'Confirm tee time', sub: 'Round ' + pad2(f.round) + ' · updates the fixture everywhere on the site',
-        body: '<div class="field"><label for="ctCourse">Golf course</label><input class="input" id="ctCourse" list="courseList" value="' + esc(d.course) + '" placeholder="e.g. Wembley Golf Course">' + courseDatalist() + '</div>' +
-          '<div class="row-2 keep"><div class="field"><label for="ctDate">Tee-off date</label><input class="input" type="date" id="ctDate" value="' + esc(d.date) + '"></div><div class="field"><label for="ctTime">Tee-off time (' + esc(tzCity(poll.timezone)) + ')</label><input class="input" type="time" id="ctTime" value="' + esc(d.time) + '"></div></div>' +
-          '<div class="row-2 keep"><div class="field"><label for="ctRef">Booking reference <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:500">(optional)</span></label><input class="input" id="ctRef" value="' + esc(poll.bookingRef || '') + '"></div>' +
-          '<div class="field"><label for="ctDur">Calendar duration</label><select class="input" id="ctDur">' + durs.map(function (x) { return '<option value="' + x + '"' + (x === d.dur ? ' selected' : '') + '>' + (x / 60) + ' hours</option>'; }).join('') + '</select></div></div>' +
-          '<div class="field"><label for="ctNotes">Notes <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:500">(optional)</span></label><textarea class="input" id="ctNotes" style="min-height:60px" placeholder="Carts, meeting point, dress code…">' + esc(poll.bookingNotes || '') + '</textarea></div>' +
-          (poll.bookingRef !== undefined ? '<p class="small muted" style="margin:0">The booking reference is visible to anyone who opens the site.</p>' : '') + '<div class="field-error" id="ctErr" role="alert"></div>',
-        foot: '<button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="ctGo">' + ICON.check + (editing ? 'Save booking' : 'Confirm tee time') + '</button>',
-        mount: function (m) {
-          $('#ctGo', m).onclick = function () {
-            var b = { course: $('#ctCourse', m).value.trim(), teeDate: $('#ctDate', m).value, teeTime: $('#ctTime', m).value, bookingRef: $('#ctRef', m).value.trim(), notes: $('#ctNotes', m).value.trim(), durationMinutes: Number($('#ctDur', m).value) };
-            if (!b.course) { $('#ctErr', m).textContent = 'Enter the golf course.'; return; }
-            if (!T.validDate(b.teeDate) || !T.validTime(b.teeTime)) { $('#ctErr', m).textContent = 'Enter the tee-off date and time.'; return; }
-            teeDo(state.store.confirmTeeTime(pollId, b), 'Locked in: ' + T.shortDate(b.teeDate) + ', ' + T.time12(b.teeTime) + ' at ' + b.course + '.', this);
-          };
-        }
-      });
-    });
-  }
-  function downloadIcs(pollId) {
-    var poll = pollById(pollId), f = fixtureById(poll.fixtureId);
-    var ics = T.buildIcs({ uid: poll.id, round: f.round, teeDate: poll.teeDate, teeTime: poll.teeTime, timezone: poll.timezone, durationMinutes: poll.durationMinutes, course: poll.course, names: ids().map(nm), bookingRef: poll.bookingRef, notes: poll.bookingNotes, url: teeUrl() });
-    var blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' }), a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = 'designated-drivers-round-' + pad2(f.round) + '.ics';
-    document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
-    toast('Calendar file downloaded — open it to add the round.');
-  }
-
-  document.addEventListener('click', function (e) {
-    var t = e.target.closest('[data-tee]'); if (!t || !state.data) return;
-    var a = t.dataset.tee, id = t.dataset.id, slot = t.dataset.slot;
-    if (a === 'vote') castVote(slot, t.dataset.status);
-    else if (a === 'view') { state.teeView = id; render(); }
-    else if (a === 'focus') { state.teeFixtureId = id; render(); }
-    else if (a === 'sign-in') openSignIn(null, 'player');
-    else if (a === 'sign-in-admin') openSignIn(null, 'admin');
-    else if (a === 'create') openPollCreate(id);
-    else if (a === 'add-slot') openSlotAdd(id);
-    else if (a === 'edit-poll') openPollEdit(id);
-    else if (a === 'correct') openVoteCorrect(slot);
-    else if (a === 'lock') lockIn(id, slot);
-    else if (a === 'confirm-tee') openConfirmTee(id);
-    else if (a === 'ics') downloadIcs(id);
-    else if (a === 'copy-link') copyText(teeUrl(), 'Link copied — paste it in the group chat.');
-    else if (a === 'prefer') requireAdmin(function () { var h = slotById(slot); teeDo(state.store.setSlotPreferred(slot, !h.slot.preferred)); });
-    else if (a === 'im-in') requirePlayer(function () { teeDo(state.store.confirmAttendance(id), 'You’re in. See you on the first tee.', t); });
-    else if (a === 'mark-in') requireAdmin(function () { teeDo(state.store.adminConfirmAttendance(id, t.dataset.player), nm(t.dataset.player) + ' marked as confirmed.', t); });
-    else if (a === 'remind') {
-      var poll = pollById(id), f = fixtureById(poll.fixtureId), out = T.progress(poll, ids()).outstanding;
-      copyText(T.reminderMessage({ name: nm(t.dataset.player), round: f.round, last: out.length === 1, url: teeUrl() }), 'Reminder copied — paste it into WhatsApp. Nothing has been sent.');
-    }
-    else if (a === 'native-share') {
-      var p2 = pollById(id), f2 = fixtureById(p2.fixtureId);
-      var text = T.confirmedMessage({ round: f2.round, course: p2.course, teeDate: p2.teeDate, teeTime: p2.teeTime, names: ids().map(nm), url: teeUrl() });
-      navigator.share({ text: text }).catch(function () {});
-    }
-    else if (a === 'remove-slot') requireAdmin(function () {
-      var h = slotById(slot);
-      confirmDialog('Remove ' + esc(T.shortDate(h.slot.date)) + '?', 'This date and its votes come off the tee sheet. It stays in the poll history.', 'Remove date', true).then(function (ok) { if (ok) teeDo(state.store.removeSlot(slot), 'Date removed.'); });
-    });
-    else if (a === 'reopen') requireAdmin(function () {
-      var p3 = pollById(id);
-      confirmDialog('Reopen scheduling?', (p3.status === 'confirmed' ? 'The confirmed tee time is withdrawn and the fixture goes back to “date to be confirmed”. ' : 'The agreed date is withdrawn. ') + 'Every vote is kept, and the change is recorded in the poll history.', 'Reopen voting').then(function (ok) { if (ok) teeDo(state.store.reopenPoll(id), 'Voting is open again.'); });
-    });
-    else if (a === 'cancel-poll') requireAdmin(function () {
-      confirmDialog('Cancel this poll?', 'Voting stops and the poll moves to the scheduling history. You can open a fresh poll for the round afterwards.', 'Cancel poll', true).then(function (ok) { if (ok) teeDo(state.store.cancelPoll(id), 'Poll cancelled.'); });
-    });
-  });
-  document.addEventListener('change', function (e) {
-    if (e.target.id === 'demoPlayerSel' && state.store.setDemoPlayer) { state.store.setDemoPlayer(e.target.value); state.session.playerId = e.target.value; render(); }
-  });
-
   /* ------------------------------------------------------------------ routing & render */
   function parseRoute() {
     var h = (location.hash || '#/clubhouse').replace(/^#\/?/, '').split('/');
     var page = h[0] || 'clubhouse';
-    if (['clubhouse', 'fixtures', 'tee-sheet', 'players', 'fines', 'records'].indexOf(page) === -1) page = 'clubhouse';
+    if (['clubhouse', 'fixtures', 'players', 'fines'].indexOf(page) === -1) page = 'clubhouse';
     return { page: page, id: h[1] || null };
   }
   function render(scrollTop) {
     if (!state.data) return;
-    if (!season()) { app.innerHTML = '<div class="page container"><div class="card empty" style="margin:40px 0"><h4>No season found</h4><p>Run supabase-schema.sql to seed Season 01, or start a season from the Records page.</p></div></div>'; return; }
+    if (!season()) { app.innerHTML = '<div class="page container"><div class="card empty" style="margin:40px 0"><h4>No season found</h4><p>Run supabase-schema.sql in the Supabase SQL Editor to set up Season 01.</p></div></div>'; return; }
     destroyCharts();
     var r = state.route = parseRoute();
     $$('[data-nav]').forEach(function (a) { var on = a.dataset.nav === r.page; a.classList.toggle('active', on); if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
@@ -1390,10 +781,8 @@
     else if (r.page === 'fixtures') renderFixtures();
     else if (r.page === 'players') { if (r.id) renderPlayer(r.id); else renderPlayers(); }
     else if (r.page === 'fines') renderFines();
-    else if (r.page === 'records') renderRecords();
-    else if (r.page === 'tee-sheet') renderTeeSheet();
     if (!scrollTop) { var pg = $('.page', app); if (pg) pg.style.animation = 'none'; }   // data refresh: no page-in animation
-    var titles = { clubhouse: 'The Clubhouse', fixtures: 'Fixtures', 'tee-sheet': 'The Tee Sheet', players: r.id ? nm(r.id) : 'Players', fines: 'The Disciplinary Committee', records: 'Records' };
+    var titles = { clubhouse: 'The Clubhouse', fixtures: 'Fixtures', players: r.id ? nm(r.id) : 'Players', fines: 'The Disciplinary Committee' };
     document.title = titles[r.page] + ' · Designated Drivers';
     if (scrollTop) window.scrollTo(0, 0);
   }
@@ -1419,17 +808,14 @@
 
   /* ------------------------------------------------------------------ global events */
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('[data-action],[data-fixture],[data-href],[data-filter],[data-edit-fine],[data-del-fine],[data-toggle-paid],[data-edit-cat],[data-complete-season]');
+    var t = e.target.closest('[data-action],[data-fixture],[data-href],[data-filter],[data-edit-fine],[data-del-fine],[data-toggle-paid],[data-edit-cat]');
     if (!t || !state.data) return;
     if (t.closest('.modal') && !t.dataset.action) return;
     var a = t.dataset.action;
     if (a === 'submit-result') { e.preventDefault(); closeModal(); openSubmit(); }
-    else if (a === 'sign-in') openSignIn(null, 'any');
-    else if (a === 'sign-out') { state.store.signOut().then(function () { state.session = null; renderFooter(); render(); toast('Signed out.'); }); }
     else if (a === 'reset-demo') { confirmDialog('Reset demo data?', 'This restores the fictional demo season in this browser.', 'Reset').then(function (ok) { if (ok) state.store.reset().then(function (d) { state.data = d; state.prevSeries = null; pickDefaultSeason(true); render(); toast('Demo data reset.'); }); }); }
     else if (a === 'add-fine') openFine();
     else if (a === 'add-category') openCategory();
-    else if (a === 'new-season') openNewSeason();
     else if (t.dataset.fixture) openFixture(t.dataset.fixture);
     else if (t.dataset.href) location.hash = t.dataset.href;
     else if (t.dataset.filter) { state.fixtureFilter = t.dataset.filter; render(); }
@@ -1437,18 +823,13 @@
     else if (t.dataset.editCat) openCategory(t.dataset.editCat);
     else if (t.dataset.togglePaid) {
       var f = state.data.fines.filter(function (x) { return x.id === t.dataset.togglePaid; })[0];
-      requireAdmin(function () { t.disabled = true; state.store.updateFine(f.id, { paid: !f.paid }).then(function () { toast(f.paid ? 'Marked as owing.' : nm(f.playerId) + ' has paid ' + money(f.amount) + '.'); return refresh(); }).catch(function (err) { t.disabled = false; toast(err.message, 'error'); }); });
+      t.disabled = true;
+      state.store.setFinePaid(f.id, !f.paid).then(function () { toast(f.paid ? 'Marked as owing.' : nm(f.playerId) + ' has paid ' + money(f.amount) + '.'); return refresh(); }).catch(function (err) { t.disabled = false; toast(err.message, 'error'); });
     }
     else if (t.dataset.delFine) {
       var fd = state.data.fines.filter(function (x) { return x.id === t.dataset.delFine; })[0];
       confirmDialog('Remove this fine?', esc(nm(fd.playerId)) + ' — ' + esc(fd.categoryName) + ' (' + money(fd.amount) + '). This cannot be undone.', 'Remove fine', true).then(function (ok) {
         if (ok) state.store.deleteFine(fd.id).then(function () { toast('Fine removed. Clemency granted.'); return refresh(); }).catch(function (err) { toast(err.message, 'error'); });
-      });
-    }
-    else if (t.dataset.completeSeason) {
-      var sid = t.dataset.completeSeason;
-      confirmDialog('Crown the champion?', 'This marks the season complete and adds the champion to the Hall of Champions.', 'Crown champion').then(function (ok) {
-        if (ok) state.store.setSeasonStatus(sid, 'completed').then(function () { toast('A champion is crowned!'); return refresh(); }).catch(function (err) { toast(err.message, 'error'); });
       });
     }
   });
@@ -1468,20 +849,20 @@
       return;
     }
     state.store = MODE === 'live' ? new D.SupabaseStore(cfg) : new D.DemoStore();
+    // Only ever used if the optional club code has been switched on in the database.
+    state.store.askCode = function () { return Promise.resolve(window.prompt('This scoreboard is protected by a club code. Enter it once and this device will remember it.')); };
     if (MODE === 'demo') {
       var b = $('#demoBanner'); b.hidden = false;
       if (liveConfigured) b.innerHTML = '<strong>Demo mode</strong> (forced with ?demo) — fictional results in this browser only. <a href="' + location.pathname + '" style="font-weight:600">Open the real championship</a>';
     }
     try {
       state.data = await state.store.load();
-      try { state.session = await state.store.session(); } catch (e) { state.session = null; }
       pickDefaultSeason(false);
       renderFooter();
       render(true);
       if (MODE === 'live') {
         var t; state.store.onChange(function () { clearTimeout(t); t = setTimeout(refresh, 400); });
         document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') refresh(); });
-        state.store.sb.auth.onAuthStateChange(function (evt) { if (evt === 'SIGNED_OUT') { state.session = null; renderFooter(); } });
       }
     } catch (e) {
       app.innerHTML = '<div class="container"><div class="card empty" style="margin:40px 0"><div class="empty-icon">' + ICON.alert + '</div><h4>The clubhouse is closed</h4><p>' + esc(e.message) + '</p><p class="small">Check config.js and that supabase-schema.sql has been run. Preview with <a href="?demo">demo mode</a>.</p><button class="btn btn-primary" onclick="location.reload()">Try again</button></div></div>';

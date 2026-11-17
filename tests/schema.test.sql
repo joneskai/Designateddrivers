@@ -1,62 +1,103 @@
--- Security & integrity checks for supabase-schema.sql (run after shim + schema).
+-- Security & integrity checks for supabase-schema.sql (no-login edition).
+-- Run on a scratch database after supabase-shim.sql + supabase-schema.sql.
 \set ON_ERROR_STOP 0
 \pset tuples_only on
-insert into auth.users values ('11111111-1111-1111-1111-111111111111','admin@example.com'), ('22222222-2222-2222-2222-222222222222','mate@example.com');
-insert into public.admins (user_id, email) values ('11111111-1111-1111-1111-111111111111','admin@example.com');
+select id as season from seasons where number = 1 \gset
+select id as fx1 from fixtures where round_number = 1 and season_id = :'season' \gset
+select id as fx2 from fixtures where round_number = 2 and season_id = :'season' \gset
+select id as fx3 from fixtures where round_number = 3 and season_id = :'season' \gset
+select id as lostball from fine_categories where name = 'Lost ball' \gset
 
-\echo '--- seed: fixtures, balance, zero results'
-select 'fixtures=' || count(*) from fixtures;
-select 'results=' || count(*) from results;
-select 'every fixture has 4 distinct players: ' || bool_and(n = 4) from (select fixture_id, count(distinct player_id) n from team_members group by fixture_id) x;
+\echo '--- seed'
+select 'fixtures=' || count(*) || ' results=' || (select count(*) from results) from fixtures where season_id = :'season';
 select 'partnership counts: ' || string_agg(c::text, ',') from (
-  select count(*) c from (select ft.id, string_agg(player_id, '+' order by player_id) k from fixture_teams ft join team_members tm on tm.fixture_team_id = ft.id group by ft.id) t group by k) y;
+  select count(*) c from (select ft.id, string_agg(player_id, '+' order by player_id) k from fixture_teams ft join team_members tm on tm.fixture_team_id = ft.id join fixtures f on f.id = ft.fixture_id where f.season_id = :'season' group by ft.id) t group by k) y;
 
-\echo '--- anon (visitor): can read, cannot write'
 set role anon;
-select 'anon reads fixtures: ' || count(*) from fixtures;
-insert into fines (season_id, player_id, category_id, amount) select (select id from seasons limit 1), 'jones', (select id from fine_categories limit 1), 5;
+\echo '--- visitor: reads work, DIRECT table writes are all refused'
+select 'reads fixtures: ' || count(*) from fixtures where season_id = :'season';
+insert into results (fixture_id, score_a, score_b, played_on) values (:'fx1', 70, 80, current_date);
 update fixtures set course = 'hacked';
-select save_result((select id from fixtures where round_number=1), current_date, 'X', 70, 80, null, 'create');
-select 'anon is_admin: ' || is_admin();
+delete from fixtures;
+insert into fines (season_id, player_id, category_id, amount) values (:'season', 'jones', :'lostball', 5);
+update players set name = 'hacked';
+delete from fine_categories;
+truncate results;
+select count(*) from dd_activity;
+select * from dd_settings;
+\echo '--- visitor: internal functions are not callable'
+select dd_guard('x', null);
+select create_season('Spam', 2030);
+select set_club_code('letmein');
+select generate_season_fixtures(:'season');
+
+\echo '--- visitor: results through the guarded function'
+select 'save ok: ' || (save_result(:'fx1', current_date, 'Wembley Golf Course', 78, 83, 'nice', 'create') is not null);
+select save_result(:'fx1', current_date, 'Wembley', 70, 80, null, 'create');                 -- duplicate
+select save_result(:'fx2', current_date, 'Wembley', 5, 80, null, 'create');                  -- bad score
+select save_result(:'fx2', current_date, 'Wembley', 70, 80.5, null, 'create');               -- not a whole number
+select save_result(:'fx2', current_date + 10, 'Wembley', 70, 80, null, 'create');            -- future
+select save_result(:'fx2', current_date, '', 70, 80, null, 'create');                        -- no course
+select save_result(:'fx2', current_date, repeat('x', 200), 70, 80, null, 'create');          -- oversized text
+select save_result(:'fx2', current_date, 'Wembley', 70, 80, null, 'update');                 -- nothing to edit
+select save_result('00000000-0000-0000-0000-000000000000', current_date, 'Wembley', 70, 80, null, 'create');
+select 'edit ok: ' || (save_result(:'fx1', current_date, 'Wembley Golf Course', 90, 70, null, 'update') is not null);
+select 'r1 now: ' || score_a || '-' || score_b from results where fixture_id = :'fx1';
+select update_fixture(:'fx2', current_date + 14, 'Lake Karrinyup');
+select 'fx2: ' || scheduled_date || ' ' || course from fixtures where id = :'fx2';
+select update_fixture(:'fx2', date '1990-01-01', 'Lake Karrinyup');
+select swap_fixture_pairings(:'fx2', :'fx3');
+select swap_fixture_pairings(:'fx1', :'fx3');                                                -- played round
+
+\echo '--- visitor: fines through the guarded functions'
+select add_fine(:'season', 'pirie', :'lostball', :'fx1') as fine \gset
+select 'fine amount defaults from tariff: ' || amount from fines where id = :'fine';
+select add_fine(:'season', 'pirie', :'lostball', :'fx1');                                    -- double tap
+select add_fine(:'season', 'nobody', :'lostball');                                           -- unknown player
+select add_fine(:'season', 'jones', :'lostball', null, 99999);                               -- silly amount
+select add_fine(:'season', 'jones', :'lostball', null, -1);
+select 'second fine ok: ' || (add_fine(:'season', 'forrest', :'lostball', null, 10, 'late again', true) is not null);
+select 'fines=' || count(*) || ' paid=' || (select count(*) from fine_payments) from fines;
+select set_fine_paid(:'fine', true);
+select update_fine(:'fine', 'fitz', :'lostball', :'fx1', 4, 'actually Fitz');
+select 'corrected fine: ' || player_id || ' $' || amount || ' paid $' || (select sum(amount) from fine_payments where fine_id = :'fine') from fines where id = :'fine';
+select set_fine_paid(:'fine', false);
+select delete_fine(:'fine');
+select 'fines after delete=' || count(*) from fines;
+select 'new offence ok: ' || (save_fine_category(null, 'Hits the cart path', 3) is not null);
+select save_fine_category(null, 'hits the CART path', 3);                                    -- duplicate name
+select save_fine_category(null, '', 3);
+select delete_result(:'fx1');
+select 'results after delete=' || (select count(*) from results) || ' fines kept=' || (select count(*) from fines);
 reset role;
 
-\echo '--- signed-in NON-admin: cannot write'
-set role authenticated; set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
-select 'mate is_admin: ' || is_admin();
-select save_result((select id from fixtures where round_number=1), current_date, 'X', 70, 80, null, 'create');
-insert into results (fixture_id, score_a, score_b, played_on) select id, 70, 80, current_date from fixtures where round_number = 1;
-update fixtures set course = 'hacked' where round_number = 1;
-select 'rows changed by mate: ' || count(*) from fixtures where course = 'hacked';
-insert into fines (season_id, player_id, category_id, amount) select (select id from seasons limit 1), 'jones', (select id from fine_categories limit 1), 5;
-select 'admins visible to mate: ' || count(*) from admins;
-reset role;
-
-\echo '--- admin: can write, duplicates refused, validation enforced'
-set role authenticated; set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
-select 'admin is_admin: ' || is_admin();
-select 'save ok: ' || (save_result((select id from fixtures where round_number=1), current_date, 'Wembley Golf Course', 78, 83, 'nice', 'create') is not null);
-select save_result((select id from fixtures where round_number=1), current_date, 'Wembley', 70, 80, null, 'create'); -- duplicate -> error
-select save_result((select id from fixtures where round_number=2), current_date, 'Wembley', 5, 80, null, 'create');   -- bad score -> error
-select save_result((select id from fixtures where round_number=2), current_date + 10, 'Wembley', 70, 80, null, 'create'); -- future -> error
-select save_result((select id from fixtures where round_number=2), current_date, 'Wembley', 70, 80, null, 'update'); -- nothing to edit -> error
-select 'edit ok: ' || (save_result((select id from fixtures where round_number=1), current_date, 'Wembley Golf Course', 90, 70, null, 'update') is not null);
-select 'r1 now: ' || score_a || '-' || score_b from results;
-insert into fines (season_id, player_id, category_id, fixture_id, amount) select (select id from seasons limit 1), 'pirie', (select id from fine_categories where name='Lost ball'), (select id from fixtures where round_number=1), 2;
-insert into fine_payments (fine_id, amount) select id, amount from fines;
-select 'fines=' || count(*) from fines;
-select 'payments=' || count(*) from fine_payments;
--- swap two unplayed rounds keeps balance
-select swap_fixture_pairings((select id from fixtures where round_number=2), (select id from fixtures where round_number=3));
-select swap_fixture_pairings((select id from fixtures where round_number=1), (select id from fixtures where round_number=3)); -- played -> error
-reset role;
+\echo '--- every change was recorded with its previous values (not visible to visitors)'
+select 'activity: ' || string_agg(action, ' > ' order by id) from dd_activity;
+select 'undo info for the edit: ' || (detail->'previous')::text from dd_activity where action = 'result_update';
 select 'balance after swap: ' || string_agg(c::text, ',') from (
-  select count(*) c from (select ft.id, string_agg(player_id, '+' order by player_id) k from fixture_teams ft join team_members tm on tm.fixture_team_id = ft.id group by ft.id) t group by k) y;
-set role authenticated; set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+  select count(*) c from (select ft.id, string_agg(player_id, '+' order by player_id) k from fixture_teams ft join team_members tm on tm.fixture_team_id = ft.id join fixtures f on f.id = ft.fixture_id where f.season_id = :'season' group by ft.id) t group by k) y;
+
+\echo '--- optional club code'
+select set_club_code('birdie24');
+set role anon;
+select save_result(:'fx1', current_date, 'Wembley', 78, 83, null, 'create');                 -- no code
+select save_result(:'fx1', current_date, 'Wembley', 78, 83, null, 'create', 'wrong');        -- wrong code
+select 'with code: ' || (save_result(:'fx1', current_date, 'Wembley', 78, 83, null, 'create', 'birdie24') is not null);
+select 'reads still open: ' || count(*) from results;
+reset role;
+select set_club_code(null);
+
+\echo '--- rate limit (30 changes per 10 minutes)'
+delete from dd_activity;
+set role anon;
+do $$ declare i int; f uuid; begin
+  select id into f from fines limit 1;
+  for i in 1..30 loop perform set_fine_paid(f, i % 2 = 0); end loop;
+end $$;
+select set_fine_paid((select id from fines limit 1), true);                                  -- the 31st
+reset role;
+select 'changes recorded=' || count(*) from dd_activity;
+delete from dd_activity;
+\echo '--- SQL-editor-only: new season'
 select 'new season: ' || (create_season('Season 02', 2027) is not null);
 select 'seasons=' || count(*) || ' fixtures=' || (select count(*) from fixtures) from seasons;
-select delete_result((select id from fixtures where round_number=1 and season_id=(select id from seasons where number=1)));
-select 'results after delete=' || count(*) from results;
-select 'fines kept after delete=' || count(*) from fines;
-reset role;
-\echo '--- direct integrity: player twice in a fixture refused'
-insert into team_members (fixture_team_id, fixture_id, player_id) select ft.id, ft.fixture_id, 'jones' from fixture_teams ft join fixtures f on f.id=ft.fixture_id where f.round_number=1 and ft.side='b' limit 1;

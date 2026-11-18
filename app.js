@@ -603,7 +603,7 @@
         '<span class="pos">' + (r.played ? ordinal(r.rank) + (r.shared ? ' (shared)' : '') : 'Yet to tee off') + '</span><span class="nm">' + esc(p.name) + '</span>' +
         '<span class="pts"><strong>' + r.points + '</strong> pts</span>' +
         '<span class="rec"><span class="rec-pill">' + r.wins + 'W</span><span class="rec-pill">' + r.draws + 'D</span><span class="rec-pill">' + r.losses + 'L</span></span>' +
-        '<span style="margin-top:10px">' + formHtml(r.form) + '</span></a>';
+        '<span style="margin-top:10px">' + formHtml(r.form) + '</span>' + (p.quote ? '<span class="pc-quote">“' + esc(p.quote) + '”</span>' : '') + '</a>';
     }).join('');
     app.innerHTML = '<div class="page container">' + hero('The Field', 'Four golfers. Twelve rounds. One championship.', roundMeta(c)) +
       '<div class="grid grid-4 players-grid">' + cards + '</div></div>';
@@ -621,7 +621,8 @@
     var html = '<div class="page container">' +
       '<a class="back-link" href="#/players">' + ICON.back + 'All players</a>' +
       '<section class="profile-hero" style="--pc:' + p.color + '">' + avatar(id, 'xl') + '<div><div class="eyebrow">' + esc(seasonLabel(c.season)) + ' · ' + (r.played ? ordinal(r.rank) + (r.shared ? ' (shared)' : '') + ' in the championship' : 'Yet to tee off') + '</div><h1>' + esc(p.name) + '</h1>' +
-      (p.bio ? '<p class="hero-lede" style="margin:6px 0 0">' + esc(p.bio) + '</p>' : '') + '<div class="hero-tags"><span class="tag">' + r.points + ' pts</span><span class="tag">' + r.wins + 'W · ' + r.draws + 'D · ' + r.losses + 'L</span><span class="tag">Stroke diff ' + (r.diff > 0 ? '+' : '') + r.diff + '</span></div></div></section>' +
+'<div class="hero-tags"><span class="tag">' + r.points + ' pts</span><span class="tag">' + r.wins + 'W · ' + r.draws + 'D · ' + r.losses + 'L</span><span class="tag">Stroke diff ' + (r.diff > 0 ? '+' : '') + r.diff + '</span></div></div></section>' +
+      playerCard(p) +
       '<div class="card" style="margin-bottom:18px"><div class="kpis">' +
       kpi('Position', r.played ? ordinal(r.rank) : '—', r.shared ? 'Shared' : 'of 4') + kpi('Points', r.points, 'Max ' + (2 * (c.season.totalRounds || 12))) + kpi('Played', r.played, (c.season.totalRounds || 12) - r.played + ' to play') + kpi('Win rate', pct(r.winPct), r.wins + 'W ' + r.draws + 'D ' + r.losses + 'L') +
       kpi('Avg team gross', num1(r.avgGross), 'Ambrose, per round') + kpi('Best team gross', r.best == null ? '—' : r.best, 'Lowest') + kpi('Worst team gross', r.worst == null ? '—' : r.worst, 'Highest') + '<div class="kpi"><div class="k">Current form</div><div style="margin-top:8px">' + formHtml(r.form) + '</div></div>' +
@@ -641,6 +642,43 @@
         : '<div class="empty"><h4>Spotless</h4><p>The Committee has nothing on ' + esc(p.name) + '. Yet.</p></div>') + '</section></div>';
     app.innerHTML = html;
     mountPlayerChart(id, c);
+  }
+  /* ---- Player card: favourite quote, best shot, biggest strength, biggest weakness ---- */
+  var BIO_FIELDS = [
+    ['quote', 'Favourite quote', 'e.g. “It’s not a hazard if you never leave it.”'],
+    ['bestShot', 'Best shot', 'e.g. Holed a 7-iron on the 4th at Wembley'],
+    ['strength', 'Biggest strength', 'e.g. Lag putting under pressure'],
+    ['weakness', 'Biggest weakness', 'e.g. Anything inside 100 metres']
+  ];
+  function playerCard(p) {
+    var any = BIO_FIELDS.some(function (f) { return p[f[0]]; });
+    return '<section class="card bio-card" aria-labelledby="bioT"><div class="card-head"><h2 id="bioT">Player Card</h2><button class="btn btn-ghost btn-sm" data-edit-bio="' + p.id + '">' + ICON.edit + (any ? 'Edit' : 'Fill it in') + '</button></div>' +
+      '<div class="bio-grid">' + BIO_FIELDS.map(function (f) {
+        var v = p[f[0]];
+        return '<div class="bio-item' + (f[0] === 'quote' ? ' quote' : '') + '"><span class="k">' + f[1] + '</span><span class="v' + (v ? '' : ' empty') + '">' + (v ? (f[0] === 'quote' ? '“' + esc(v) + '”' : esc(v)) : 'Not added yet') + '</span></div>';
+      }).join('') + '</div></section>';
+  }
+  function openBio(id) {
+    edit(function () {
+      var p = P(id), saving = false;
+      openModal({
+        title: esc(p.name) + '’s player card', sub: 'Keep it short. Anyone can edit this.',
+        body: HONEYPOT + BIO_FIELDS.map(function (f) {
+          return '<div class="field"><label for="bio-' + f[0] + '">' + f[1] + '</label><input class="input" id="bio-' + f[0] + '" maxlength="140" value="' + esc(p[f[0]] || '') + '" placeholder="' + esc(f[2]) + '"></div>';
+        }).join(''),
+        foot: '<button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="bioSave">' + ICON.check + 'Save</button>',
+        mount: function (m) {
+          $('#bioSave', m).onclick = async function () {
+            if (saving) return;
+            if (trapped(m)) { closeModal(); return; }
+            var data = {}; BIO_FIELDS.forEach(function (f) { data[f[0]] = $('#bio-' + f[0], m).value.trim(); });
+            var b = this; saving = true; busy(b, true);
+            try { await state.store.updatePlayerProfile(id, data); closeModal(); toast(p.name + '’s player card updated.'); await refresh(); }
+            catch (e) { saving = false; busy(b, false); toast(e.message, 'error'); }
+          };
+        }
+      });
+    });
   }
   function kpi(k, v, s) { return '<div class="kpi"><div class="k">' + k + '</div><div class="v">' + v + '</div><div class="s">' + s + '</div></div>'; }
   function mountPlayerChart(id, c) {
@@ -688,7 +726,7 @@
       fs.rows.map(function (r, i) { return '<div class="lb-row"><span class="rank-num">' + (i + 1) + '</span><div><span class="inline-player">' + avatar(r.id, 'sm') + esc(nm(r.id)) + '</span><div class="lb-bar"><i style="width:' + (r.total / maxTot * 100) + '%"></i></div></div><div class="lb-amt">' + money(r.total) + '<small>' + plural(r.count, 'offence') + (r.outstanding ? ' · ' + money(r.outstanding) + ' owing' : '') + '</small></div></div>'; }).join('') +
       '</div><p class="committee-quote">“Ignorance of the tariff is no defence.”</p></section></div>' +
       '<section class="card" style="margin-bottom:18px"><div class="card-head"><div><h2>Tariff of Penalties</h2><p class="card-sub">Standard fines. The Committee may adjust any amount at its discretion.</p></div></div><div class="tariff" style="margin-top:10px">' +
-      cats.map(function (k) { return '<div class="tariff-item' + (k.active ? '' : ' inactive') + '"><span>' + esc(k.name) + '</span><span style="display:flex;gap:8px;align-items:center"><span class="amt">' + money(k.amount) + '</span>' + ('<button class="icon-btn" data-edit-cat="' + k.id + '" aria-label="Edit ' + esc(k.name) + '">' + ICON.edit + '</button>') + '</span></div>'; }).join('') +
+      cats.filter(function (k) { return k.active; }).map(function (k) { return '<div class="tariff-item"><span>' + esc(k.name) + '</span><span style="display:flex;gap:8px;align-items:center"><span class="amt">' + money(k.amount) + '</span>' + ('<button class="icon-btn" data-edit-cat="' + k.id + '" aria-label="Edit ' + esc(k.name) + '">' + ICON.edit + '</button>') + '</span></div>'; }).join('') +
       '</div></section></div>';
   }
 
@@ -808,7 +846,7 @@
 
   /* ------------------------------------------------------------------ global events */
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('[data-action],[data-fixture],[data-href],[data-filter],[data-edit-fine],[data-del-fine],[data-toggle-paid],[data-edit-cat]');
+    var t = e.target.closest('[data-action],[data-fixture],[data-href],[data-filter],[data-edit-fine],[data-del-fine],[data-toggle-paid],[data-edit-cat],[data-edit-bio]');
     if (!t || !state.data) return;
     if (t.closest('.modal') && !t.dataset.action) return;
     var a = t.dataset.action;
@@ -821,6 +859,7 @@
     else if (t.dataset.filter) { state.fixtureFilter = t.dataset.filter; render(); }
     else if (t.dataset.editFine) openFine(t.dataset.editFine);
     else if (t.dataset.editCat) openCategory(t.dataset.editCat);
+    else if (t.dataset.editBio) openBio(t.dataset.editBio);
     else if (t.dataset.togglePaid) {
       var f = state.data.fines.filter(function (x) { return x.id === t.dataset.togglePaid; })[0];
       t.disabled = true;

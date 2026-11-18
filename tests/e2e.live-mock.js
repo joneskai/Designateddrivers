@@ -13,7 +13,7 @@ const FAKE = `
     fixtures.push({id:'fx'+r,season_id:'s1',round_number:r,scheduled_date:r===2?'2030-01-05':null,course:r===2?'Lake Karrinyup':null,
       fixture_teams:[{side:'b',team_members:[{player_id:ids[s[3]]},{player_id:ids[s[2]]}]},{side:'a',team_members:[{player_id:ids[s[1]]},{player_id:ids[s[0]]}]}],
       results:r===1?{score_a:75,score_b:79,played_on:'2026-11-01',notes:null,updated_at:'x'}:null});}
-  var db={players:ids.map(function(id,i){return{id:id,name:id[0].toUpperCase()+id.slice(1),color:null,image_url:null,sort_order:i+1,bio:id==='jones'?'Real bio from the database.':null};}),
+  var db={players:ids.map(function(id,i){return{id:id,name:id[0].toUpperCase()+id.slice(1),color:null,image_url:null,sort_order:i+1,quote:id==='jones'?'Quote from the database.':null,best_shot:null,strength:id==='jones'?'Strength from the database.':null,weakness:null};}),
     seasons:[{id:'s1',number:1,name:'Season 01',year:2026,total_rounds:12,status:'active'}],fixtures:fixtures,
     fine_categories:[{id:'c1',name:'Lost ball',default_amount:'2.00',active:true,sort_order:1}],
     fines:[{id:'f1',season_id:'s1',player_id:'pirie',category_id:'c1',fixture_id:'fx1',amount:'2.00',notes:null,created_at:'2026-11-01',fine_categories:{name:'Lost ball'},fine_payments:[{amount:'2.00'}]}]};
@@ -71,7 +71,11 @@ const FAKE = `
   assert.strictEqual(await page.evaluate(() => window.__auth), 0, 'the auth client is never touched');
   assert.strictEqual(await page.evaluate(() => window.__key), 'sb_publishable_test');
   await page.goto(BASE + '/index.html#/players/jones'); await page.waitForSelector('.profile-hero');
-  assert.match(await page.textContent('.profile-hero'), /Real bio from the database\./);
+  assert.match(await page.textContent('.bio-card'), /“Quote from the database\.”/);
+  assert.match(await page.textContent('.bio-card'), /Strength from the database\./);
+  await page.click('[data-edit-bio="jones"]'); await page.fill('#bio-weakness', 'Bunkers'); await page.click('#bioSave'); await page.waitForTimeout(400);
+  const up = (await calls(page, 'update_player_profile'))[0];
+  assert.deepStrictEqual(up, { p_player_id: 'jones', p_quote: 'Quote from the database.', p_best_shot: null, p_strength: 'Strength from the database.', p_weakness: 'Bunkers', p_code: null });
   await page.close();
 
   // --- optional club code: asked once, remembered on the device

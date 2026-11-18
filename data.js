@@ -17,9 +17,7 @@
   ];
 
   var DEFAULT_CATEGORIES = [
-    ['Fails to pass the forward tees', 5], ['Late to tee-off', 10], ['Lost ball', 2], ['Three-putt', 2],
-    ['Club thrown in anger', 5], ['Water hazard', 2], ['Air swing', 5], ['Blames equipment', 2],
-    ['Incorrect score reported', 10], ['No-show', 20]
+    ['Not at course 10 mins before tee-off', 5], ['No-show', 20], ['Ball in water', 2], ['Fails to pass ladies’ tees', 5], ['Air swing', 5]
   ];
 
   function uid() {
@@ -31,7 +29,7 @@
   /* ------------------------------------------------------------------
      DEMO STORE (fictional — clearly labelled in the UI)
      ------------------------------------------------------------------ */
-  var DEMO_KEY = 'dd-demo-data-v3';
+  var DEMO_KEY = 'dd-demo-data-v4';
 
   function buildDemo() {
     var seasonId = 'demo-season-1';
@@ -55,18 +53,18 @@
     var cats = DEFAULT_CATEGORIES.map(function (c, i) { return { id: 'demo-cat-' + (i + 1), name: c[0], amount: c[1], active: true, sort: i + 1 }; });
     function cat(name) { return cats.filter(function (c) { return c.name === name; })[0]; }
     var fines = [
-      ['forrest', 'Late to tee-off', 1, true, 'Claimed the Mitchell Fwy was “unusually hostile”.'],
-      ['pirie', 'Fails to pass the forward tees', 2, false, 'Ladies’ tee, 4th hole. Witnessed by all.'],
-      ['forrest', 'Water hazard', 2, true, ''],
-      ['fitz', 'Blames equipment', 3, false, 'Blamed a brand-new putter for a 2-foot miss.'],
-      ['forrest', 'Three-putt', 4, false, ''],
-      ['pirie', 'Air swing', 4, false, 'Practice swing, allegedly.']
+      ['forrest', 'Not at course 10 mins before tee-off', 1, true, 'Fictional demo fine.'],
+      ['pirie', 'Fails to pass ladies’ tees', 2, false, ''],
+      ['forrest', 'Ball in water', 2, true, ''],
+      ['fitz', 'Air swing', 3, false, ''],
+      ['forrest', 'Ball in water', 4, false, ''],
+      ['pirie', 'Air swing', 4, false, '']
     ].map(function (x, i) {
       var c = cat(x[1]);
       return { id: 'demo-fine-' + (i + 1), seasonId: seasonId, playerId: x[0], categoryId: c.id, categoryName: c.name, fixtureId: 'demo-fx-' + x[2], amount: c.amount, paid: x[3], notes: x[4], createdAt: dates[x[2] - 1] + 'T09:00:00Z' };
     });
     return {
-      players: clone(PLAYERS).map(function (p) { p.bio = { jones: 'Fictional bio: fairways are a suggestion, trophies are not.', fitz: 'Fictional bio: owns nine putters and trusts none of them.', pirie: 'Fictional bio: the longest drive in the group, occasionally on the right hole.', forrest: 'Fictional bio: always late, never short of an excuse.' }[p.id]; return p; }),
+      players: clone(PLAYERS).map(function (p) { p.quote = ''; p.bestShot = ''; p.strength = ''; p.weakness = ''; return p; }),
       seasons: [{ id: seasonId, number: 1, name: 'Season 01', year: 2026, totalRounds: 12, status: 'active' }],
       fixtures: fixtures, fineCategories: cats, fines: fines
     };
@@ -144,6 +142,12 @@
   DemoStore.prototype.deleteFine = function (id) {
     return this._mutate(function (d) { d.fines = d.fines.filter(function (x) { return x.id !== id; }); });
   };
+  DemoStore.prototype.updatePlayerProfile = function (id, f) {
+    return this._mutate(function (d) {
+      var p = d.players.filter(function (x) { return x.id === id; })[0]; if (!p) throw new Error('Player not found');
+      ['quote', 'bestShot', 'strength', 'weakness'].forEach(function (k) { var v = String(f[k] || '').trim(); if (v.length > 140) throw new Error('Keep each answer under 140 characters'); p[k] = v; });
+    });
+  };
   DemoStore.prototype.saveCategory = function (c) {
     return this._mutate(function (d) {
       if (c.id) { var x = d.fineCategories.filter(function (y) { return y.id === c.id; })[0]; x.name = c.name; x.amount = Number(c.amount); x.active = c.active !== false; }
@@ -183,7 +187,7 @@
     ]);
     var players = check(r[0]).map(function (p) {
       var base = PLAYERS.filter(function (x) { return x.id === p.id; })[0] || {};
-      return { id: p.id, name: p.name, color: p.color || base.color || '#888', image: p.image_url || base.image || ('assets/' + p.id + '.png'), sort: p.sort_order, bio: p.bio || '' };
+      return { id: p.id, name: p.name, color: p.color || base.color || '#888', image: p.image_url || base.image || ('assets/' + p.id + '.png'), sort: p.sort_order, quote: p.quote || '', bestShot: p.best_shot || '', strength: p.strength || '', weakness: p.weakness || '' };
     });
     var seasons = check(r[1]).map(function (s) { return { id: s.id, number: s.number, name: s.name, year: s.year, totalRounds: s.total_rounds, status: s.status }; });
     var order = function (x, y) { return players.findIndex(function (p) { return p.id === x; }) - players.findIndex(function (p) { return p.id === y; }); };
@@ -245,6 +249,9 @@
   };
   SupabaseStore.prototype.setFinePaid = function (id, paid) { return this._write('set_fine_paid', { p_fine_id: id, p_paid: !!paid }); };
   SupabaseStore.prototype.deleteFine = function (id) { return this._write('delete_fine', { p_fine_id: id }); };
+  SupabaseStore.prototype.updatePlayerProfile = function (id, f) {
+    return this._write('update_player_profile', { p_player_id: id, p_quote: f.quote || null, p_best_shot: f.bestShot || null, p_strength: f.strength || null, p_weakness: f.weakness || null });
+  };
   SupabaseStore.prototype.saveCategory = function (c) { return this._write('save_fine_category', { p_id: c.id || null, p_name: c.name, p_amount: Number(c.amount), p_active: c.active !== false }); };
 
   root.DDData = {

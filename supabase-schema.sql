@@ -121,8 +121,12 @@ create table if not exists public.fine_payments (
   created_at  timestamptz not null default now()
 );
 
--- Optional short biography shown on a player's profile.
-alter table public.players add column if not exists bio text;
+-- Player card shown on each profile (editable from the site).
+alter table public.players add column if not exists bio text;            -- older free-text bio, no longer shown
+alter table public.players add column if not exists quote text;
+alter table public.players add column if not exists best_shot text;
+alter table public.players add column if not exists strength text;
+alter table public.players add column if not exists weakness text;
 
 -- Settings (currently only the optional club code). Never readable by visitors.
 create table if not exists public.dd_settings (
@@ -201,7 +205,7 @@ begin
   for r in select p.oid::regprocedure as sig from pg_proc p join pg_namespace n on n.oid = p.pronamespace
            where n.nspname = 'public' and p.proname in (
              'save_result','delete_result','swap_fixture_pairings','create_season','update_fixture',
-             'add_fine','update_fine','set_fine_paid','delete_fine','save_fine_category','set_club_code','dd_guard','dd_text',
+             'add_fine','update_fine','set_fine_paid','delete_fine','save_fine_category','set_club_code','dd_guard','dd_text','update_player_profile',
              'cancel_poll','reopen_poll','confirm_tee_time','admin_confirm_attendance','confirm_attendance','tee_record_agreement',
              'lock_in_date','admin_set_vote','cast_vote','tee_write_vote','update_poll','set_slot_preferred','remove_poll_slot',
              'add_poll_slot','create_poll','tee_add_slot','tee_log','current_player_id') loop
@@ -406,8 +410,8 @@ declare v_id uuid; v_amount numeric; v_notes text := public.dd_text(p_notes, 300
 begin
   if not exists (select 1 from public.seasons where id = p_season_id) then raise exception 'Season not found'; end if;
   if not exists (select 1 from public.players where id = p_player_id) then raise exception 'Choose a player'; end if;
-  select coalesce(p_amount, default_amount) into v_amount from public.fine_categories where id = p_category_id;
-  if not found then raise exception 'Choose an offence'; end if;
+  select coalesce(p_amount, default_amount) into v_amount from public.fine_categories where id = p_category_id and active;
+  if not found then raise exception 'Choose an offence from the tariff'; end if;
   if v_amount is null or v_amount < 0 or v_amount > 500 then raise exception 'The amount must be between $0 and $500'; end if;
   if p_fixture_id is not null and not exists (select 1 from public.fixtures where id = p_fixture_id and season_id = p_season_id) then raise exception 'That round is not part of this season'; end if;
   -- double-tap protection: the identical fine twice within ten seconds
@@ -487,6 +491,25 @@ begin
   return v_id;
 end $$;
 
+-- Player card: favourite quote, best shot, biggest strength, biggest weakness.
+create or replace function public.update_player_profile(
+  p_player_id text, p_quote text, p_best_shot text, p_strength text, p_weakness text, p_code text default null
+) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_old record;
+  v_quote text := public.dd_text(p_quote, 140, 'Favourite quote');
+  v_shot text := public.dd_text(p_best_shot, 140, 'Best shot');
+  v_strength text := public.dd_text(p_strength, 140, 'Biggest strength');
+  v_weakness text := public.dd_text(p_weakness, 140, 'Biggest weakness');
+begin
+  select * into v_old from public.players where id = p_player_id for update;
+  if not found then raise exception 'Player not found'; end if;
+  perform public.dd_guard('player_profile', p_code, jsonb_build_object('player', p_player_id,
+    'previous', jsonb_build_object('quote', v_old.quote, 'best_shot', v_old.best_shot, 'strength', v_old.strength, 'weakness', v_old.weakness)));
+  update public.players set quote = v_quote, best_shot = v_shot, strength = v_strength, weakness = v_weakness where id = p_player_id;
+end $$;
+
 -- SQL editor only. Switch the optional club code on:  select public.set_club_code('1234');
 -- and off again:                                      select public.set_club_code(null);
 create or replace function public.set_club_code(p_code text) returns text
@@ -521,6 +544,7 @@ revoke all on function public.update_fine(uuid, text, uuid, uuid, numeric, text,
 revoke all on function public.set_fine_paid(uuid, boolean, text) from public;
 revoke all on function public.delete_fine(uuid, text) from public;
 revoke all on function public.save_fine_category(uuid, text, numeric, boolean, text) from public;
+revoke all on function public.update_player_profile(text, text, text, text, text, text) from public;
 
 grant execute on function public.season_is_visible(uuid) to anon, authenticated;
 grant execute on function public.fixture_is_visible(uuid) to anon, authenticated;
@@ -533,6 +557,7 @@ grant execute on function public.update_fine(uuid, text, uuid, uuid, numeric, te
 grant execute on function public.set_fine_paid(uuid, boolean, text) to anon, authenticated;
 grant execute on function public.delete_fine(uuid, text) to anon, authenticated;
 grant execute on function public.save_fine_category(uuid, text, numeric, boolean, text) to anon, authenticated;
+grant execute on function public.update_player_profile(text, text, text, text, text, text) to anon, authenticated;
 
 -- Tables: Row Level Security ON everywhere. Visitors can READ the championship
 -- and have no direct write access to anything.
@@ -575,18 +600,33 @@ insert into public.players (id, name, color, image_url, sort_order) values
   ('forrest', 'Forrest', '#EC8A78', 'assets/forrest.png', 4)
 on conflict (id) do nothing;
 
-insert into public.fine_categories (name, default_amount, sort_order) values
-  ('Fails to pass the forward tees', 5, 1),
-  ('Late to tee-off', 10, 2),
-  ('Lost ball', 2, 3),
-  ('Three-putt', 2, 4),
-  ('Club thrown in anger', 5, 5),
-  ('Water hazard', 2, 6),
-  ('Air swing', 5, 7),
-  ('Blames equipment', 2, 8),
-  ('Incorrect score reported', 10, 9),
-  ('No-show', 20, 10)
-on conflict (name) do nothing;
+-- The tariff of fines. Existing offences that match are renamed (so fines
+-- already recorded against them keep their link and their recorded amount),
+-- any missing ones are added, and every other offence is retired: it stays in
+-- the database for past fines but can't be chosen for new ones.
+do $$
+declare r record;
+begin
+  for r in select * from (values
+      ('Late to tee-off',                'Not at course 10 mins before tee-off'),
+      ('Water hazard',                   'Ball in water'),
+      ('Fails to pass the forward tees', 'Fails to pass ladies'' tees')) as m(old_name, new_name) loop
+    if not exists (select 1 from public.fine_categories where name = r.new_name) then
+      update public.fine_categories set name = r.new_name where name = r.old_name;
+    end if;
+  end loop;
+end $$;
+
+insert into public.fine_categories (name, default_amount, sort_order, active) values
+  ('Not at course 10 mins before tee-off', 5, 1, true),
+  ('No-show', 20, 2, true),
+  ('Ball in water', 2, 3, true),
+  ('Fails to pass ladies'' tees', 5, 4, true),
+  ('Air swing', 5, 5, true)
+on conflict (name) do update set default_amount = excluded.default_amount, sort_order = excluded.sort_order, active = true;
+
+update public.fine_categories set active = false
+where name not in ('Not at course 10 mins before tee-off', 'No-show', 'Ball in water', 'Fails to pass ladies'' tees', 'Air swing');
 
 do $$
 declare v_id uuid;
@@ -611,8 +651,9 @@ commit;
 -- See or undo recent changes (previous values are stored with each change):
 --   select created_at, action, detail from public.dd_activity order by created_at desc limit 50;
 --
--- Player biography:
---   update public.players set bio = 'Short game wizard. Long game hazard.' where id = 'jones';
+-- Player cards (quote, best shot, strength, weakness) are edited on each
+-- player's profile page. To clear one from here:
+--   update public.players set quote = null, best_shot = null, strength = null, weakness = null where id = 'jones';
 --
 -- Start another season (12 balanced fixtures):
 --   select public.create_season('Season 02', 2027);

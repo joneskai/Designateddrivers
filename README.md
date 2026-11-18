@@ -22,8 +22,20 @@ It is plain HTML, CSS and JavaScript with no build step. Data lives in Supabase,
 
 - **Clubhouse**: Championship Race chart, standings, latest round, key stats.
 - **Fixtures**: all 12 rounds. Tap a round to enter or correct its result, change its date and course, swap two unplayed pairings, or delete a result entered by mistake.
-- **Players**: profile cards, then a profile each with biography, stats, points chart, partner chemistry, results history and fines.
-- **Fines**: the pot, who owes what, the full register and the tariff. Anyone can issue, correct, mark as paid or remove a fine, and add offences to the tariff.
+- **Players**: profile cards, then a profile each with a player card (favourite quote, best shot, biggest strength, biggest weakness — anyone can fill it in), stats, points chart, partner chemistry, results history and fines.
+- **Fines**: the pot, who owes what, the full register and the tariff. Anyone can issue, correct, mark as paid or remove a fine.
+
+The tariff is:
+
+| Offence | Fine |
+|---|---|
+| Not at course 10 mins before tee-off | $5 |
+| No-show | $20 |
+| Ball in water | $2 |
+| Fails to pass ladies' tees | $5 |
+| Air swing | $5 |
+
+Running `supabase-schema.sql` sets the tariff to exactly these five. Older offences are retired rather than deleted, so fines already recorded keep their offence name and the amount charged at the time.
 
 **Submit Result** (top right, or the round button on a phone) is one screen: round, course, date, two gross team scores, submit. Points, standings, the chart and every profile update straight away.
 
@@ -93,8 +105,8 @@ Results and fines save to Supabase immediately, so **nothing needs redeploying a
 ## Things you set in the SQL Editor
 
 ```sql
--- A player's biography (shown on their profile)
-update public.players set bio = 'Short game wizard. Long game hazard.' where id = 'jones';
+-- Clear a player card (it is normally edited on the player's profile page)
+update public.players set quote = null, best_shot = null, strength = null, weakness = null where id = 'jones';
 
 -- A hosted photo instead of the file in assets/
 update public.players set image_url = 'https://…/jones.jpg' where id = 'jones';

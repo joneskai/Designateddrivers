@@ -6,9 +6,10 @@ select id as season from seasons where number = 1 \gset
 select id as fx1 from fixtures where round_number = 1 and season_id = :'season' \gset
 select id as fx2 from fixtures where round_number = 2 and season_id = :'season' \gset
 select id as fx3 from fixtures where round_number = 3 and season_id = :'season' \gset
-select id as lostball from fine_categories where name = 'Lost ball' \gset
+select id as lostball from fine_categories where name = 'Ball in water' \gset
 
 \echo '--- seed'
+select 'active tariff: ' || string_agg(name || ' $' || default_amount::int, ' | ' order by sort_order) from fine_categories where active;
 select 'fixtures=' || count(*) || ' results=' || (select count(*) from results) from fixtures where season_id = :'season';
 select 'partnership counts: ' || string_agg(c::text, ',') from (
   select count(*) c from (select ft.id, string_agg(player_id, '+' order by player_id) k from fixture_teams ft join team_members tm on tm.fixture_team_id = ft.id join fixtures f on f.id = ft.fixture_id where f.season_id = :'season' group by ft.id) t group by k) y;
@@ -31,6 +32,12 @@ select create_season('Spam', 2030);
 select set_club_code('letmein');
 select generate_season_fixtures(:'season');
 
+\echo '--- visitor: player card through the guarded function'
+select update_player_profile('fitz', '  Grip it and rip it  ', 'Eagle on 9', 'Driver', '');
+select 'fitz card: ' || quote || ' / ' || best_shot || ' / ' || strength || ' / weakness null=' || (weakness is null) from players where id = 'fitz';
+select update_player_profile('fitz', repeat('x', 141), null, null, null);
+select update_player_profile('nobody', 'x', null, null, null);
+update players set quote = 'hacked' where id = 'fitz';
 \echo '--- visitor: results through the guarded function'
 select 'save ok: ' || (save_result(:'fx1', current_date, 'Wembley Golf Course', 78, 83, 'nice', 'create') is not null);
 select save_result(:'fx1', current_date, 'Wembley', 70, 80, null, 'create');                 -- duplicate
@@ -65,6 +72,7 @@ select set_fine_paid(:'fine', false);
 select delete_fine(:'fine');
 select 'fines after delete=' || count(*) from fines;
 select 'new offence ok: ' || (save_fine_category(null, 'Hits the cart path', 3) is not null);
+select add_fine(:'season', 'jones', (select id from fine_categories where name = 'Hits the cart path' and false));   -- no offence chosen
 select save_fine_category(null, 'hits the CART path', 3);                                    -- duplicate name
 select save_fine_category(null, '', 3);
 select delete_result(:'fx1');
@@ -101,3 +109,8 @@ delete from dd_activity;
 \echo '--- SQL-editor-only: new season'
 select 'new season: ' || (create_season('Season 02', 2027) is not null);
 select 'seasons=' || count(*) || ' fixtures=' || (select count(*) from fixtures) from seasons;
+\echo '--- a retired offence cannot be used for a new fine'
+update fine_categories set active = false where name = 'Hits the cart path';
+set role anon;
+select add_fine(:'season', 'jones', (select id from fine_categories where name = 'Hits the cart path'));
+reset role;

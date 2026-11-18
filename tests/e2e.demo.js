@@ -16,7 +16,7 @@ const SHOTS = process.env.DD_SHOTS || '';
     const shot = async (n, full) => { if (SHOTS) await page.screenshot({ path: SHOTS + '/' + vp.name + '-' + n + '.png', fullPage: !!full }); };
     const go = async (hash, sel) => { await page.goto(BASE + '#/' + hash); await page.waitForSelector(sel); };
     const pts = async () => { await go('clubhouse', '.standings tbody tr'); return page.$$eval('.standings tbody tr', (rows) => Object.fromEntries(rows.map((r) => [r.querySelector('.name').textContent, +r.querySelector('.pts-box').textContent]))); };
-    const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('dd-demo-data-v3')));
+    const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('dd-demo-data-v4')));
     const submitBtn = vp.width < 700 ? '.tab-submit' : '.btn-submit';
 
     await page.goto(BASE + '#/clubhouse'); await page.evaluate(() => localStorage.clear()); await page.reload();
@@ -72,11 +72,16 @@ const SHOTS = process.env.DD_SHOTS || '';
     await page.fill('#feCourse', 'Secret Harbour'); await page.click('#feSave');
     await page.waitForFunction(() => /Secret Harbour/.test(document.querySelector('[data-fixture="demo-fx-6"]').textContent));
 
-    // --- fines: pick a player, pick an offence, submit
+    // --- fines: exactly the five offences on the tariff
     await go('fines', '.fines-hero-stats');
+    assert.deepStrictEqual(await page.$$eval('.tariff-item', (t) => t.map((x) => x.innerText.replace(/\s+/g, ' ').trim())),
+      ['Not at course 10 mins before tee-off $5', 'No-show $20', 'Ball in water $2', 'Fails to pass ladies’ tees $5', 'Air swing $5']);
+    assert.match(await page.textContent('.fines-hero-stats'), /\$24/);
+    // --- fines: pick a player, pick an offence, submit
     assert.match(await page.textContent('.fines-hero-stats'), /6 offences/);
     const before = await pts(); await go('fines', '.fines-hero-stats');
     await page.click('[data-action="add-fine"]'); await page.waitForSelector('.pick');
+    assert.strictEqual(await page.$$eval('#fnC option', (o) => o.length), 5);
     await page.click('#fnSave');
     assert.match(await page.textContent('#fnPErr'), /Choose who/);
     await page.click('.pick-item:has(input[value="jones"])');
@@ -84,7 +89,7 @@ const SHOTS = process.env.DD_SHOTS || '';
     await shot('3-fine');
     await page.click('#fnSave');
     await page.waitForFunction(() => /7 offences/.test(document.querySelector('.fines-hero-stats').textContent));
-    assert.match(await page.textContent('.fines-hero-stats'), /\$46/);
+    assert.match(await page.textContent('.fines-hero-stats'), /\$44/);
     // the same fine again straight away is treated as a double tap
     await page.click('[data-action="add-fine"]'); await page.click('.pick-item:has(input[value="jones"])'); await page.selectOption('#fnC', { label: 'No-show — $20' }); await page.click('#fnSave');
     await page.waitForSelector('.toast.error');
@@ -93,20 +98,33 @@ const SHOTS = process.env.DD_SHOTS || '';
     assert.strictEqual((await stored()).fines.length, 7);
     // correct it, mark it paid, then delete it
     await page.click('[data-edit-fine]'); await page.waitForSelector('#fnA'); await page.fill('#fnA', '15'); await page.click('#fnSave');
-    await page.waitForFunction(() => /\$41/.test(document.querySelector('.fines-hero-stats').textContent));
+    await page.waitForFunction(() => /\$39/.test(document.querySelector('.fines-hero-stats').textContent));
     await page.click('[data-toggle-paid]');
     await page.waitForFunction(() => /Paid/.test(document.querySelector('[data-toggle-paid]').textContent));
     await page.click('[data-del-fine]'); await page.click('#cfOk');
     await page.waitForFunction(() => /6 offences/.test(document.querySelector('.fines-hero-stats').textContent));
     assert.deepStrictEqual(await pts(), before, 'fines never change championship points');
 
-    // --- profiles: biography, results history, fines
+    // --- player card: empty to start, filled in from the profile, shown on the Players page
     await go('players/fitz', '.profile-hero');
-    assert.match(await page.textContent('.profile-hero'), /nine putters/);
+    assert.deepStrictEqual(await page.$$eval('.bio-item .k', (k) => k.map((x) => x.textContent)), ['Favourite quote', 'Best shot', 'Biggest strength', 'Biggest weakness']);
+    assert.strictEqual(await page.$$eval('.bio-item .v.empty', (v) => v.length), 4);
+    await page.click('[data-edit-bio="fitz"]'); await page.waitForSelector('#bio-quote');
+    await page.fill('#bio-quote', 'Test quote <b>not bold</b>'); await page.fill('#bio-bestShot', 'Test best shot');
+    await page.fill('#bio-strength', 'Test strength'); await page.fill('#bio-weakness', 'Test weakness');
+    await page.click('#bioSave');
+    await page.waitForFunction(() => /Test weakness/.test(document.querySelector('.bio-card').textContent));
+    assert.match(await page.textContent('.bio-card'), /“Test quote <b>not bold<\/b>”/, 'text shown literally, not as HTML');
+    assert.strictEqual(await page.$('.bio-card b'), null);
+    await shot('5-profile', true);
+    await go('players', '.player-card');
+    assert.match(await page.textContent('a.player-card[href="#/players/fitz"]'), /Test quote/);
+    await go('players/fitz', '.profile-hero');
     assert.match(await page.textContent('#app'), /Match History/); assert.match(await page.textContent('#app'), /Partner Chemistry/); assert.match(await page.textContent('#app'), /Disciplinary Record/);
     // --- refresh keeps everything; no page scrolls sideways
     await page.reload(); await page.waitForSelector('.profile-hero');
     assert.strictEqual((await stored()).fixtures[0].scoreA, 90);
+    assert.match(await page.textContent('.bio-card'), /Test best shot/, 'player card persists after refresh');
     for (const r of ['clubhouse', 'fixtures', 'players', 'players/pirie', 'fines']) {
       await page.goto(BASE + '#/' + r); await page.waitForTimeout(300);
       const ov = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

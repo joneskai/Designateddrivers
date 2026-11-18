@@ -16,7 +16,7 @@ const SHOTS = process.env.DD_SHOTS || '';
     const shot = async (n, full) => { if (SHOTS) await page.screenshot({ path: SHOTS + '/' + vp.name + '-' + n + '.png', fullPage: !!full }); };
     const go = async (hash, sel) => { await page.goto(BASE + '#/' + hash); await page.waitForSelector(sel); };
     const pts = async () => { await go('clubhouse', '.standings tbody tr'); return page.$$eval('.standings tbody tr', (rows) => Object.fromEntries(rows.map((r) => [r.querySelector('.name').textContent, +r.querySelector('.pts-box').textContent]))); };
-    const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('dd-demo-data-v4')));
+    const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('dd-demo-data-v5')));
     const submitBtn = vp.width < 700 ? '.tab-submit' : '.btn-submit';
 
     await page.goto(BASE + '#/clubhouse'); await page.evaluate(() => localStorage.clear()); await page.reload();
@@ -24,7 +24,7 @@ const SHOTS = process.env.DD_SHOTS || '';
 
     // --- four sections, no Tee Sheet, no Records, no login anywhere
     const nav = await page.$$eval(vp.width < 980 ? '.tabbar a' : '.main-nav a', (a) => a.map((x) => x.textContent.trim()));
-    assert.deepStrictEqual(nav, ['Clubhouse', 'Fixtures', 'Players', 'Fines']);
+    assert.deepStrictEqual(nav, ['Clubhouse', 'Fixtures', 'Tee Time', 'Players', 'Fines']);
     assert.ok(!/sign in|log ?in|password/i.test(await page.textContent('body')), 'no login wording on the page');
     for (const gone of ['records', 'tee-sheet']) { await page.goto(BASE + '#/' + gone); await page.waitForSelector('.standings'); assert.match(await page.textContent('.hero'), /The Clubhouse/); }
     await page.waitForTimeout(900); await shot('1-clubhouse', true);
@@ -125,7 +125,7 @@ const SHOTS = process.env.DD_SHOTS || '';
     await page.reload(); await page.waitForSelector('.profile-hero');
     assert.strictEqual((await stored()).fixtures[0].scoreA, 90);
     assert.match(await page.textContent('.bio-card'), /Test best shot/, 'player card persists after refresh');
-    for (const r of ['clubhouse', 'fixtures', 'players', 'players/pirie', 'fines']) {
+    for (const r of ['clubhouse', 'fixtures', 'tee-time', 'players', 'players/pirie', 'fines']) {
       await page.goto(BASE + '#/' + r); await page.waitForTimeout(300);
       const ov = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       assert.ok(ov <= 0, vp.name + ' overflow on ' + r + ': ' + ov);

@@ -145,6 +145,49 @@ create table if not exists public.dd_activity (
 );
 create index if not exists dd_activity_created_idx on public.dd_activity(created_at);
 
+-- Tee Time ------------------------------------------------------------
+-- The agreed tee-off time lives on the fixture itself (next to its date and
+-- course), so there is only ever one record of when a round is being played.
+alter table public.fixtures add column if not exists tee_time time;
+-- How many weekends the Tee Time calendar shows for this round (starts at 4, +2 when extended).
+alter table public.fixtures add column if not exists tee_weeks smallint not null default 4;
+
+-- Availability: one row per player per weekend (keyed by its Friday).
+-- mask holds 15 bits: Fri/Sat/Sun × Early AM, Late AM, Lunch, Early PM, Twilight
+-- (bit = day*5 + window). A row means the player has answered that weekend;
+-- no row means "no response yet", which is never treated as "can't play".
+create table if not exists public.availability (
+  player_id   text not null references public.players(id) on update cascade on delete cascade,
+  weekend     date not null check (extract(isodow from weekend) = 5),
+  mask        int  not null default 0 check (mask between 0 and 32767),
+  updated_at  timestamptz not null default now(),
+  primary key (player_id, weekend)
+);
+
+-- A proposed date for a fixture, the four confirmations, and the final tee time.
+create table if not exists public.tee_proposals (
+  id           uuid primary key default gen_random_uuid(),
+  fixture_id   uuid not null references public.fixtures(id) on delete cascade,
+  play_date    date not null,
+  slot         smallint not null check (slot between 0 and 4),
+  status       text not null default 'open' check (status in ('open', 'scheduled', 'withdrawn')),
+  proposed_by  text references public.players(id) on update cascade on delete set null,
+  tee_time     time,
+  course       text,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+-- At most one live (open or scheduled) proposal per fixture; withdrawn ones are kept as history.
+create unique index if not exists tee_proposals_one_live on public.tee_proposals (fixture_id) where status <> 'withdrawn';
+
+create table if not exists public.tee_responses (
+  proposal_id  uuid not null references public.tee_proposals(id) on delete cascade,
+  player_id    text not null references public.players(id) on update cascade on delete cascade,
+  response     text not null check (response in ('yes', 'no')),
+  updated_at   timestamptz not null default now(),
+  primary key (proposal_id, player_id)
+);
+
 create index if not exists fixtures_season_idx      on public.fixtures(season_id);
 create index if not exists team_members_player_idx  on public.team_members(player_id);
 create index if not exists fines_season_idx         on public.fines(season_id);
@@ -198,7 +241,7 @@ declare r record;
 begin
   -- every old policy on our tables (they are recreated in section 5)
   for r in select policyname, tablename from pg_policies where schemaname = 'public'
-           and tablename in ('players','seasons','fixtures','fixture_teams','team_members','results','fine_categories','fines','fine_payments','admins','dd_settings','dd_activity') loop
+           and tablename in ('players','seasons','fixtures','fixture_teams','team_members','results','fine_categories','fines','fine_payments','admins','dd_settings','dd_activity','availability','tee_proposals','tee_responses') loop
     execute format('drop policy if exists %I on public.%I', r.policyname, r.tablename);
   end loop;
   -- every old version of the website's functions, whatever their arguments were
@@ -206,6 +249,7 @@ begin
            where n.nspname = 'public' and p.proname in (
              'save_result','delete_result','swap_fixture_pairings','create_season','update_fixture',
              'add_fine','update_fine','set_fine_paid','delete_fine','save_fine_category','set_club_code','dd_guard','dd_text','update_player_profile',
+             'set_availability','extend_availability','propose_round','respond_proposal','withdraw_proposal','schedule_fixture',
              'cancel_poll','reopen_poll','confirm_tee_time','admin_confirm_attendance','confirm_attendance','tee_record_agreement',
              'lock_in_date','admin_set_vote','cast_vote','tee_write_vote','update_poll','set_slot_preferred','remove_poll_slot',
              'add_poll_slot','create_poll','tee_add_slot','tee_log','current_player_id') loop
@@ -220,7 +264,6 @@ drop table if exists public.scheduling_votes;
 drop table if exists public.scheduling_slots;
 drop table if exists public.scheduling_polls;
 drop table if exists public.player_accounts;
-alter table public.fixtures drop column if exists tee_time;
 
 -- ---------------------------------------------------------------------
 -- 3. READ HELPERS
@@ -267,11 +310,21 @@ begin
   exception when others then v_ip := '';
   end;
   v_ip_hash := case when coalesce(trim(v_ip), '') <> '' then md5(trim(v_ip)) end;
-  if (select count(*) from public.dd_activity where created_at > now() - interval '10 minutes' and ip_hash is not distinct from v_ip_hash) >= 30 then
-    raise exception 'Too many changes in a short time. Try again in a few minutes.';
-  end if;
-  if (select count(*) from public.dd_activity where created_at > now() - interval '1 day') >= 300 then
-    raise exception 'The daily limit for changes has been reached. Try again tomorrow.';
+  if p_action = 'availability' then
+    -- availability is saved a few taps at a time, so it gets its own, roomier limits
+    if (select count(*) from public.dd_activity where action = 'availability' and created_at > now() - interval '10 minutes' and ip_hash is not distinct from v_ip_hash) >= 240 then
+      raise exception 'Too many availability changes in a short time. Try again in a few minutes.';
+    end if;
+    if (select count(*) from public.dd_activity where action = 'availability' and created_at > now() - interval '1 day') >= 3000 then
+      raise exception 'The daily limit for availability changes has been reached. Try again tomorrow.';
+    end if;
+  else
+    if (select count(*) from public.dd_activity where action <> 'availability' and created_at > now() - interval '10 minutes' and ip_hash is not distinct from v_ip_hash) >= 30 then
+      raise exception 'Too many changes in a short time. Try again in a few minutes.';
+    end if;
+    if (select count(*) from public.dd_activity where action <> 'availability' and created_at > now() - interval '1 day') >= 300 then
+      raise exception 'The daily limit for changes has been reached. Try again tomorrow.';
+    end if;
   end if;
   insert into public.dd_activity (action, detail, ip_hash) values (p_action, coalesce(p_detail, '{}'::jsonb), v_ip_hash);
 end $$;
@@ -510,6 +563,133 @@ begin
   update public.players set quote = v_quote, best_shot = v_shot, strength = v_strength, weakness = v_weakness where id = p_player_id;
 end $$;
 
+-- Tee Time ------------------------------------------------------------
+
+drop trigger if exists set_updated_at on public.tee_proposals;
+create trigger set_updated_at before update on public.tee_proposals for each row execute function public.tg_set_updated_at();
+
+-- Save availability for one player. p_changes is a batch of
+--   [{"w": "2027-01-08", "s": bits_to_set, "c": bits_to_clear}, …]
+-- applied to the stored bits on the server, so two phones editing at the same
+-- time merge cell by cell instead of overwriting each other.
+create or replace function public.set_availability(p_player_id text, p_changes jsonb, p_code text default null) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare ch jsonb; v_w date; v_s int; v_c int; v_prev jsonb; v_out jsonb := '[]'::jsonb; v_new int;
+begin
+  if not exists (select 1 from public.players where id = p_player_id) then raise exception 'Choose a player'; end if;
+  if jsonb_typeof(p_changes) is distinct from 'array' or jsonb_array_length(p_changes) = 0 or jsonb_array_length(p_changes) > 30 then
+    raise exception 'Nothing to save';
+  end if;
+  for ch in select * from jsonb_array_elements(p_changes) loop
+    begin
+      v_w := (ch->>'w')::date; v_s := coalesce((ch->>'s')::int, 0); v_c := coalesce((ch->>'c')::int, 0);
+    exception when others then raise exception 'Invalid availability change';
+    end;
+    if v_w is null or extract(isodow from v_w) <> 5 then raise exception 'Availability is saved by weekend, starting Friday'; end if;
+    if v_w < current_date - 14 or v_w > current_date + 400 then raise exception 'That weekend is out of range'; end if;
+    if v_s not between 0 and 32767 or v_c not between 0 and 32767 then raise exception 'Invalid availability change'; end if;
+  end loop;
+  select coalesce(jsonb_agg(jsonb_build_object('w', a.weekend, 'mask', a.mask)), '[]'::jsonb) into v_prev
+    from public.availability a where a.player_id = p_player_id and a.weekend in (select (e->>'w')::date from jsonb_array_elements(p_changes) e);
+  perform public.dd_guard('availability', p_code, jsonb_build_object('player', p_player_id, 'changes', p_changes, 'previous', v_prev));
+  for ch in select * from jsonb_array_elements(p_changes) loop
+    v_w := (ch->>'w')::date; v_s := coalesce((ch->>'s')::int, 0); v_c := coalesce((ch->>'c')::int, 0);
+    insert into public.availability as a (player_id, weekend, mask) values (p_player_id, v_w, v_s & ~v_c)
+    on conflict (player_id, weekend) do update set mask = (a.mask | v_s) & ~v_c, updated_at = now()
+    returning a.mask into v_new;
+    v_out := v_out || jsonb_build_array(jsonb_build_object('w', v_w, 'mask', v_new));
+  end loop;
+  return v_out;
+end $$;
+
+-- Show two more weekends for a round (up to 26 in total).
+create or replace function public.extend_availability(p_fixture_id uuid, p_code text default null) returns int
+language plpgsql security definer set search_path = public as $$
+declare v_weeks int;
+begin
+  perform 1 from public.fixtures where id = p_fixture_id for update;
+  if not found then raise exception 'Fixture not found'; end if;
+  perform public.dd_guard('availability_extend', p_code, jsonb_build_object('fixture_id', p_fixture_id));
+  update public.fixtures set tee_weeks = least(coalesce(tee_weeks, 4) + 2, 26) where id = p_fixture_id returning tee_weeks into v_weeks;
+  return v_weeks;
+end $$;
+
+-- Propose a date and window for a fixture. The proposer (if given) is marked as in.
+create or replace function public.propose_round(p_fixture_id uuid, p_date date, p_slot int, p_player_id text default null, p_code text default null) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare v_id uuid;
+begin
+  perform 1 from public.fixtures where id = p_fixture_id for update;   -- one proposal at a time, even with two phones
+  if not found then raise exception 'Fixture not found'; end if;
+  if exists (select 1 from public.results where fixture_id = p_fixture_id) then raise exception 'That round has already been played'; end if;
+  if p_date is null or extract(isodow from p_date) not in (5, 6, 7) then raise exception 'Rounds are played Friday to Sunday'; end if;
+  if p_date < current_date - 1 or p_date > current_date + 400 then raise exception 'That date is out of range'; end if;
+  if p_slot is null or p_slot not between 0 and 4 then raise exception 'Choose a time window'; end if;
+  if p_player_id is not null and not exists (select 1 from public.team_members where fixture_id = p_fixture_id and player_id = p_player_id) then raise exception 'Unknown player'; end if;
+  if exists (select 1 from public.tee_proposals where fixture_id = p_fixture_id and status <> 'withdrawn') then
+    raise exception 'This round has already been proposed — refresh to see it.';
+  end if;
+  perform public.dd_guard('tee_propose', p_code, jsonb_build_object('fixture_id', p_fixture_id, 'date', p_date, 'slot', p_slot, 'by', p_player_id));
+  insert into public.tee_proposals (fixture_id, play_date, slot, proposed_by) values (p_fixture_id, p_date, p_slot, p_player_id) returning id into v_id;
+  if p_player_id is not null then insert into public.tee_responses (proposal_id, player_id, response) values (v_id, p_player_id, 'yes'); end if;
+  return v_id;
+end $$;
+
+-- A player says they're in ('yes') or can't make it ('no').
+create or replace function public.respond_proposal(p_proposal_id uuid, p_player_id text, p_response text, p_code text default null) returns void
+language plpgsql security definer set search_path = public as $$
+declare v_prop record;
+begin
+  select * into v_prop from public.tee_proposals where id = p_proposal_id for update;
+  if not found then raise exception 'That proposal no longer exists — refresh.'; end if;
+  if v_prop.status <> 'open' then raise exception 'This proposal is no longer open for replies.'; end if;
+  if p_response not in ('yes', 'no') then raise exception 'Answer yes or no'; end if;
+  if not exists (select 1 from public.team_members where fixture_id = v_prop.fixture_id and player_id = p_player_id) then raise exception 'Unknown player'; end if;
+  perform public.dd_guard('tee_respond', p_code, jsonb_build_object('proposal_id', p_proposal_id, 'player', p_player_id, 'response', p_response,
+    'previous', (select response from public.tee_responses where proposal_id = p_proposal_id and player_id = p_player_id)));
+  insert into public.tee_responses as r (proposal_id, player_id, response) values (p_proposal_id, p_player_id, p_response)
+  on conflict (proposal_id, player_id) do update set response = excluded.response, updated_at = now();
+end $$;
+
+-- Withdraw a proposal. If it had been scheduled, the fixture's date and tee time are cleared.
+create or replace function public.withdraw_proposal(p_proposal_id uuid, p_code text default null) returns void
+language plpgsql security definer set search_path = public as $$
+declare v_prop record; v_fx record;
+begin
+  select * into v_prop from public.tee_proposals where id = p_proposal_id for update;
+  if not found or v_prop.status = 'withdrawn' then return; end if;
+  select * into v_fx from public.fixtures where id = v_prop.fixture_id for update;
+  perform public.dd_guard('tee_withdraw', p_code, jsonb_build_object('proposal_id', p_proposal_id, 'previous',
+    jsonb_build_object('status', v_prop.status, 'date', v_fx.scheduled_date, 'tee_time', v_fx.tee_time, 'course', v_fx.course)));
+  update public.tee_proposals set status = 'withdrawn' where id = p_proposal_id;
+  if v_prop.status = 'scheduled' and not exists (select 1 from public.results where fixture_id = v_prop.fixture_id) then
+    update public.fixtures set scheduled_date = null, tee_time = null where id = v_prop.fixture_id;
+  end if;
+end $$;
+
+-- Once all four are in: record the tee-off time and course on the fixture.
+-- Also used to change them later. (This records the plan; it doesn't book the course.)
+create or replace function public.schedule_fixture(p_proposal_id uuid, p_tee_time time, p_course text, p_code text default null) returns void
+language plpgsql security definer set search_path = public as $$
+declare v_prop record; v_waiting text; v_course text := public.dd_text(p_course, 80, 'Golf course');
+begin
+  select * into v_prop from public.tee_proposals where id = p_proposal_id for update;
+  if not found then raise exception 'That proposal no longer exists — refresh.'; end if;
+  if v_prop.status = 'withdrawn' then raise exception 'That proposal was withdrawn — refresh.'; end if;
+  if exists (select 1 from public.results where fixture_id = v_prop.fixture_id) then raise exception 'That round has already been played'; end if;
+  if p_tee_time is null then raise exception 'Enter the tee-off time'; end if;
+  if v_course is null then raise exception 'Golf course is required'; end if;
+  select string_agg(p.name, ', ' order by p.sort_order) into v_waiting
+    from public.team_members tm join public.players p on p.id = tm.player_id
+    where tm.fixture_id = v_prop.fixture_id
+      and not exists (select 1 from public.tee_responses r where r.proposal_id = p_proposal_id and r.player_id = tm.player_id and r.response = 'yes');
+  if v_waiting is not null then raise exception 'Still waiting for % to confirm', v_waiting; end if;
+  perform public.dd_guard('tee_schedule', p_code, jsonb_build_object('proposal_id', p_proposal_id, 'tee_time', p_tee_time, 'course', v_course,
+    'previous', (select jsonb_build_object('date', scheduled_date, 'tee_time', tee_time, 'course', course) from public.fixtures where id = v_prop.fixture_id)));
+  update public.tee_proposals set status = 'scheduled', tee_time = p_tee_time, course = v_course where id = p_proposal_id;
+  update public.fixtures set scheduled_date = v_prop.play_date, tee_time = p_tee_time, course = v_course where id = v_prop.fixture_id;
+end $$;
+
 -- SQL editor only. Switch the optional club code on:  select public.set_club_code('1234');
 -- and off again:                                      select public.set_club_code(null);
 create or replace function public.set_club_code(p_code text) returns text
@@ -558,6 +738,18 @@ grant execute on function public.set_fine_paid(uuid, boolean, text) to anon, aut
 grant execute on function public.delete_fine(uuid, text) to anon, authenticated;
 grant execute on function public.save_fine_category(uuid, text, numeric, boolean, text) to anon, authenticated;
 grant execute on function public.update_player_profile(text, text, text, text, text, text) to anon, authenticated;
+revoke all on function public.set_availability(text, jsonb, text) from public;
+revoke all on function public.extend_availability(uuid, text) from public;
+revoke all on function public.propose_round(uuid, date, int, text, text) from public;
+revoke all on function public.respond_proposal(uuid, text, text, text) from public;
+revoke all on function public.withdraw_proposal(uuid, text) from public;
+revoke all on function public.schedule_fixture(uuid, time, text, text) from public;
+grant execute on function public.set_availability(text, jsonb, text) to anon, authenticated;
+grant execute on function public.extend_availability(uuid, text) to anon, authenticated;
+grant execute on function public.propose_round(uuid, date, int, text, text) to anon, authenticated;
+grant execute on function public.respond_proposal(uuid, text, text, text) to anon, authenticated;
+grant execute on function public.withdraw_proposal(uuid, text) to anon, authenticated;
+grant execute on function public.schedule_fixture(uuid, time, text, text) to anon, authenticated;
 
 -- Tables: Row Level Security ON everywhere. Visitors can READ the championship
 -- and have no direct write access to anything.
@@ -572,6 +764,9 @@ alter table public.fines            enable row level security;
 alter table public.fine_payments    enable row level security;
 alter table public.dd_settings      enable row level security;
 alter table public.dd_activity      enable row level security;
+alter table public.availability     enable row level security;
+alter table public.tee_proposals    enable row level security;
+alter table public.tee_responses    enable row level security;
 
 create policy "public read" on public.players         for select to anon, authenticated using (true);
 create policy "public read" on public.seasons         for select to anon, authenticated using (is_published);
@@ -582,12 +777,16 @@ create policy "public read" on public.results         for select to anon, authen
 create policy "public read" on public.fine_categories for select to anon, authenticated using (true);
 create policy "public read" on public.fines           for select to anon, authenticated using (public.season_is_visible(season_id));
 create policy "public read" on public.fine_payments   for select to anon, authenticated using (exists (select 1 from public.fines f where f.id = fine_id));
+create policy "public read" on public.availability    for select to anon, authenticated using (true);
+create policy "public read" on public.tee_proposals   for select to anon, authenticated using (public.fixture_is_visible(fixture_id));
+create policy "public read" on public.tee_responses   for select to anon, authenticated using (exists (select 1 from public.tee_proposals tp where tp.id = proposal_id));
 -- dd_settings and dd_activity deliberately have NO policies: invisible to the website.
 
 revoke all on public.players, public.seasons, public.fixtures, public.fixture_teams, public.team_members, public.results,
-  public.fine_categories, public.fines, public.fine_payments, public.dd_settings, public.dd_activity from anon, authenticated;
+  public.fine_categories, public.fines, public.fine_payments, public.dd_settings, public.dd_activity,
+  public.availability, public.tee_proposals, public.tee_responses from anon, authenticated;
 grant select on public.players, public.seasons, public.fixtures, public.fixture_teams, public.team_members, public.results,
-  public.fine_categories, public.fines, public.fine_payments to anon, authenticated;
+  public.fine_categories, public.fines, public.fine_payments, public.availability, public.tee_proposals, public.tee_responses to anon, authenticated;
 
 -- ---------------------------------------------------------------------
 -- 6. SEED DATA (only added when missing; a new project starts with zero results)
@@ -662,4 +861,6 @@ commit;
 --
 -- Instant updates across phones (otherwise pages refresh when reopened):
 --   alter publication supabase_realtime add table public.results, public.fixtures, public.team_members,
---     public.fines, public.fine_payments, public.fine_categories, public.seasons;
+--     public.fines, public.fine_payments, public.fine_categories, public.seasons,
+--     public.availability, public.tee_proposals, public.tee_responses;
+-- (The Tee Time page also checks for changes every 15 seconds while it is open.)

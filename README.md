@@ -8,6 +8,7 @@ It is plain HTML, CSS and JavaScript with no build step. Data lives in Supabase,
 ├── index.html            page shell (header, nav, modals)
 ├── style.css             all styles (desktop + mobile)
 ├── engine.js             scoring rules: pure, deterministic, unit-tested
+├── teetime.js            Tee Time rules: the 21-day window, availability, best overlaps
 ├── data.js               data layer: demo store (browser only) + Supabase store
 ├── app.js                pages, Championship Race chart, forms
 ├── config.js             Supabase URL + publishable key (empty = demo mode)
@@ -18,10 +19,11 @@ It is plain HTML, CSS and JavaScript with no build step. Data lives in Supabase,
 └── tests/                scoring tests, browser tests, database tests
 ```
 
-## The four sections
+## The five sections
 
 - **Clubhouse**: Championship Race chart, standings, latest round, key stats.
 - **Fixtures**: all 12 rounds. Tap a round to enter or correct its result, change its date and course, swap two unplayed pairings, or delete a result entered by mistake.
+- **Tee Time**: works out when the next round can be played. See below.
 - **Players**: profile cards, then a profile each with a player card (favourite quote, best shot, biggest strength, biggest weakness — anyone can fill it in), stats, points chart, partner chemistry, results history and fines.
 - **Fines**: the pot, who owes what, the full register and the tariff. Anyone can issue, correct, mark as paid or remove a fine.
 
@@ -38,6 +40,20 @@ The tariff is:
 Running `supabase-schema.sql` sets the tariff to exactly these five. Older offences are retired rather than deleted, so fines already recorded keep their offence name and the amount charged at the time.
 
 **Submit Result** (top right, or the round button on a phone) is one screen: round, course, date, two gross team scores, submit. Points, standings, the chart and every profile update straight away.
+
+## Tee Time
+
+Open Tee Time → tap your name → tap the times you can play → the best date appears at the top.
+
+- **Which round:** always the next unplayed round from Fixtures, with its pairings. Nothing is created separately.
+- **When availability opens:** three weeks after the last round played. The calendar starts on the Friday of the weekend in which that 21-day mark falls (or the next Friday if it lands Monday–Thursday). Round on Sun 13 Dec 2026 → calendar opens Fri 1 Jan 2027. If those weekends have already passed, it starts from the current weekend instead, so it can never get stuck.
+- **The calendar:** Friday, Saturday and Sunday, each with Early AM, Late AM, Lunch, Early PM and Twilight. Four weekends to start; "Show 2 more weekends" adds more and keeps everything already entered. Tap a cell to toggle it, tap a day name to fill or clear the day, or use "Free all weekend" / "Can't make it" (both can be undone).
+- **Answered vs not answered:** once you touch a weekend, anything you left grey means you can't play. A weekend you haven't touched shows as "not answered", and the site never treats that as a no.
+- **Best overlaps:** the top three times, all-four times first and then the earliest. Only a 4/4 time is ever recommended; 3/4 times show as alternatives with who can't make it or who hasn't answered. Preferred windows can be set in `config.js` (`teePreferredWindows: ['early_am', 'late_am']`); by default the earliest window wins a tie.
+- **Propose → confirm → schedule:** "Propose round" (or tap any overlap) suggests a date and window, and the proposer is marked as in. Each player taps "I'm in" or "Can't make it". Once all four are in, enter the tee-off time and course; that writes the date, time and course onto the fixture itself, so Fixtures and the Clubhouse show it. It records the plan only. Booking the course is still up to you.
+- **After the round:** enter the result as usual. Tee Time moves to the next round and opens its calendar three weeks after the date played. Correcting or deleting a result recalculates it automatically.
+
+Your name choice is remembered on each phone. Every tap shows instantly and saves within half a second ("Saving…" / "Saved"; if a save fails it says so and keeps your taps for a retry). The page checks for other people's changes every 15 seconds while open. If two phones change availability at the same moment, the database merges them cell by cell, so nobody's taps are lost.
 
 ## Updating the database (do this once after pulling this version)
 
@@ -59,7 +75,7 @@ Anyone who has the link can record and correct results and fines. That is the po
 | No direct table access | Row Level Security is on for every table. Visitors can read the championship but cannot insert, update or delete anything directly. |
 | Guarded functions only | The site changes data only by calling functions in `supabase-schema.sql`. Each one validates its input: scores 18–200, no future dates, sensible amounts, text length limits, real players and rounds only. |
 | Duplicate protection | A round can hold one result (the database enforces it), played rounds are not offered in the submit form, the save button locks while saving, and an identical fine within ten seconds is refused. |
-| Rate limits | At most 30 changes per 10 minutes from one address and 300 per day in total. A script cannot flood the scoreboard. |
+| Rate limits | At most 30 changes per 10 minutes from one address and 300 per day in total. Tee Time availability is saved a few taps at a time and has its own, roomier limit (240 saves per 10 minutes, 3,000 per day), so filling in a calendar never uses up the allowance for results and fines. |
 | Hidden bot field | Forms carry a field people never see; anything that fills it in is ignored. |
 | Undo trail | Every change is recorded with the values it replaced, in a table visitors cannot read. A mistake or vandalism can be put back. |
 | No secrets in the site | `config.js` holds only the project URL and the publishable key, which are designed to be public. Never put the `service_role` key, a `sb_secret_…` key or the database password anywhere in this repository. |
@@ -148,10 +164,21 @@ node tests/e2e.demo.js http://localhost:8765
 ```bash
 node tests/e2e.live-mock.js http://localhost:8765
 ```
+```bash
+node tests/teetime.test.js
+```
+18 checks of the Tee Time rules: the 21-day window for every weekday and across month, year and leap-year boundaries; Perth dates; missing versus "can't"; 4/4 versus 3/4; extending; ranking.
+
+```bash
+node tests/e2e.teetime.js http://localhost:8765
+```
+The whole Tee Time flow at desktop and iPhone widths: picking a name, ticking, bulk actions and undo, persistence after refresh, a second device, propose → confirm → schedule → Fixtures and Clubhouse, entering, correcting and deleting the result, and extending when no time works.
+
 `e2e.demo.js` runs the whole site at desktop and iPhone widths with no login: submit, correct and delete a result; issue, correct, pay and delete a fine; duplicate and bot protection; profiles. `e2e.live-mock.js` runs the Supabase path against a mocked client: every write is a function call, the club code flow, and the message shown before the database is updated.
 
 To check the database rules on a local PostgreSQL scratch database:
 ```bash
 psql -d scratch -f tests/supabase-shim.sql -f supabase-schema.sql -f tests/schema.test.sql
 ```
+and, on a second fresh scratch database, `tests/teetime.schema.test.sql` (simultaneous edits merging, proposals, confirmations, scheduling).
 `supabase-shim.sql` imitates Supabase's built-in roles for testing only; never run it on Supabase.

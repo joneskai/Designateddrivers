@@ -4,7 +4,7 @@
    ===================================================================== */
 (function () {
   'use strict';
-  var E = window.DDEngine, D = window.DDData;
+  var E = window.DDEngine, D = window.DDData, T = window.DDTee;
   var cfg = window.DD_CONFIG || {};
   var params = new URLSearchParams(location.search);
   var liveConfigured = !!(cfg.supabaseUrl && cfg.supabasePublishableKey);
@@ -48,6 +48,9 @@
     golf: '<svg viewBox="0 0 24 24"><path d="M9 21V3l8 4-8 4"/><path d="M5 21h10"/></svg>',
     balance: '<svg viewBox="0 0 24 24"><path d="M12 3v18M5 7h14M7 7l-3 7a3 3 0 0 0 6 0zM17 7l-3 7a3 3 0 0 0 6 0zM8 21h8"/></svg>',
     lock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+    users: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c.7-4 3.9-6 8-6s7.3 2 8 6"/></svg>',
+    info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
+    chevron: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
     up: '<svg viewBox="0 0 10 10"><path d="M5 1 9.5 8.5h-9z"/></svg>',
     down: '<svg viewBox="0 0 10 10"><path d="M5 9 .5 1.5h9z"/></svg>'
   };
@@ -165,12 +168,18 @@
     return '<section class="hero"><div>' + seasonEyebrow() + '<h1>' + title + '</h1>' + (lede ? '<p class="hero-lede">' + lede + '</p>' : '') + '</div>' + (meta || '') + '</section>';
   }
   function roundMeta(c) {
-    var total = c.season.totalRounds || 12;
-    var nextHtml = c.next
-      ? '<div class="meta-next">' + ICON.calendar + '<span>' + (c.next.date ? fmtDate(c.next.date) : 'Round ' + pad2(c.next.round) + ' · Date TBC') + (c.next.course ? ' · ' + esc(c.next.course) : (c.next.date ? ' · Course TBC' : '')) + '</span></div>'
-      : '<div class="meta-next">' + ICON.trophy + '<span>Season complete</span></div>';
+    var total = c.season.totalRounds || 12, n = c.next, prop = n ? liveProposal(n.id) : null, nextHtml, link = '';
+    if (!n) nextHtml = '<div class="meta-next">' + ICON.trophy + '<span>Season complete</span></div>';
+    else {
+      var when;
+      if (n.date) when = fmtDate(n.date) + (n.teeTime ? ' · ' + time12(n.teeTime) : '') + (n.course ? ' · ' + esc(n.course) : ' · Course TBC');
+      else if (prop) when = 'Proposed · ' + T.shortDate(prop.date) + ' · ' + slotLabel(prop.slot);
+      else when = 'Round ' + pad2(n.round) + ' · Date TBC';
+      nextHtml = '<div class="meta-next">' + ICON.calendar + '<span>' + when + '</span></div>';
+      if (!(prop && prop.status === 'scheduled') && !(state.route && state.route.page === 'tee-time')) link = '<a class="meta-link" href="#/tee-time">' + (prop ? 'Confirm on Tee Time' : 'Find a date') + ' →</a>';
+    }
     return '<div class="hero-meta"><div class="meta-block center"><span class="meta-label">Round</span><span class="meta-big">' + pad2(c.done.length) + ' / ' + total + '</span></div>' +
-      '<div class="meta-block"><span class="meta-label">' + (c.next ? 'Next Round' : 'Status') + '</span>' + nextHtml + '</div></div>';
+      '<div class="meta-block"><span class="meta-label">' + (n ? 'Next Round' : 'Status') + '</span>' + nextHtml + link + '</div></div>';
   }
 
   /* ------------------------------------------------------------------ CLUBHOUSE */
@@ -414,7 +423,12 @@
   function fixtureRow(f, c) {
     var done = E.isCompleted(f), o = done ? E.outcome(f) : null;
     var isNext = c.next && c.next.id === f.id;
-    var status = done ? '<span class="badge done">' + (o.winner === 'DRAW' ? 'Halved' : 'Final') + '</span>' : isNext ? '<span class="badge next">Up next</span>' : '<span class="badge">Scheduled</span>';
+    var prop = done ? null : liveProposal(f.id);
+    var status = done ? '<span class="badge done">' + (o.winner === 'DRAW' ? 'Halved' : 'Final') + '</span>'
+      : prop && prop.status === 'scheduled' ? '<span class="badge done">Scheduled</span>'
+      : prop ? '<span class="badge next">Proposed</span>'
+      : isNext ? '<span class="badge next">Up next</span>' : '<span class="badge">Upcoming</span>';
+    var dateText = !done && !f.date && prop ? T.shortDate(prop.date) + ' · ' + slotLabel(prop.slot) + ' (proposed)' : fmtDate(f.date) + (!done && f.teeTime ? ' · ' + time12(f.teeTime) : '');
     var center = done ? '<div class="score-pill">' + f.scoreA + ' – ' + f.scoreB + '</div>' : '<div class="score-pill">vs</div>';
     var result = done ? (o.winner === 'DRAW' ? 'All square' : esc(teamName(o.winners)) + ' by ' + o.margin) : '';
     return '<button type="button" class="fixture ' + (done ? 'completed' : 'upcoming') + (isNext ? ' next' : '') + '" data-fixture="' + f.id + '" aria-label="Round ' + f.round + ' details">' +
@@ -422,9 +436,10 @@
       '<div class="fx-team' + (o && o.winner === 'A' ? ' won' : '') + '">' + pair(f.teamA, 'sm') + '<span class="nm">' + esc(teamName(f.teamA)) + '</span></div>' +
       '<div class="fx-center">' + center + '</div>' +
       '<div class="fx-team right' + (o && o.winner === 'B' ? ' won' : '') + '"><span class="nm">' + esc(teamName(f.teamB)) + '</span>' + pair(f.teamB, 'sm') + '</div>' +
-      '<div class="fx-meta"><div class="date">' + fmtDate(f.date) + '</div><div class="course">' + esc(f.course || 'Course TBC') + '</div>' + (result ? '<div class="small muted">' + result + '</div>' : '') + status + '</div></button>';
+      '<div class="fx-meta"><div class="date">' + dateText + '</div><div class="course">' + esc(f.course || 'Course TBC') + '</div>' + (result ? '<div class="small muted">' + result + '</div>' : '') + status + '</div></button>';
   }
 
+  function c_isNext(f) { var n = ctx().next; return !!n && n.id === f.id; }
   function openFixture(id) {
     var f = fixtureById(id); if (!f) return;
     var done = E.isCompleted(f), o = done ? E.outcome(f) : null;
@@ -436,7 +451,8 @@
     }
     var body = '<div class="fixture-detail-teams">' + team(f.teamA, 'A') + (done ? '<div class="score-pill">' + f.scoreA + ' – ' + f.scoreB + '</div>' : '<div class="score-pill" style="background:transparent;color:var(--muted);border:1.5px dashed var(--line-2)">vs</div>') + team(f.teamB, 'B') + '</div>' +
       (done ? (o.winner === 'DRAW' ? '<div class="win-banner draw"><span class="trophy">' + ICON.balance + '</span><div><div class="t1">All square</div><div class="t2">Both teams on ' + f.scoreA + ' gross · +1 pt each</div></div></div>' : '<div class="win-banner"><span class="trophy">' + ICON.trophy + '</span><div><div class="t1">' + esc(teamName(o.winners)) + ' win</div><div class="t2">By ' + plural(o.margin, 'stroke') + ' · +2 pts each</div></div></div>') : '<div class="callout info">This round has not been played yet.</div>') +
-      '<ul class="confirm-list" style="margin-top:14px"><li><span>Date</span><span>' + fmtDate(f.date, true) + '</span></li>' + '<li><span>Course</span><span>' + esc(f.course || 'TBC') + '</span></li><li><span>Format</span><span>2-person Ambrose · gross</span></li>' +
+      '<ul class="confirm-list" style="margin-top:14px"><li><span>Date</span><span>' + fmtDate(f.date, true) + '</span></li>' + (!done && f.teeTime ? '<li><span>Tee-off</span><span>' + time12(f.teeTime) + '</span></li>' : '') +
+      (!done && c_isNext(f) ? '<li><span>Tee Time</span><span><a href="#/tee-time">' + (liveProposal(f.id) ? (liveProposal(f.id).status === 'scheduled' ? 'Scheduled' : 'Proposed') + ' — view' : 'Find a date') + ' →</a></span></li>' : '') + '<li><span>Course</span><span>' + esc(f.course || 'TBC') + '</span></li><li><span>Format</span><span>2-person Ambrose · gross</span></li>' +
       (f.notes ? '<li><span>Notes</span><span>' + esc(f.notes) + '</span></li>' : '') + '</ul>' +
       (fines.length ? '<div class="section-label">Fines this round</div><ul class="confirm-list">' + fines.map(function (x) { return '<li><span>' + esc(nm(x.playerId)) + ' — ' + esc(x.categoryName) + '</span><span>' + money(x.amount) + '</span></li>'; }).join('') + '</ul>' : '');
     var foot = (done ? '<button class="btn btn-danger btn-sm spacer" id="fxDel">' + ICON.trash + 'Delete result</button>' : '<button class="btn btn-ghost btn-sm spacer" id="fxSwap">' + ICON.swap + 'Swap pairing</button>') +
@@ -459,7 +475,8 @@
 
   function openFixtureEdit(id) {
     edit(function () {
-      var f = fixtureById(id);
+      var f = fixtureById(id), lp = liveProposal(f.id);
+      if (lp && lp.status === 'scheduled' && !E.isCompleted(f)) { closeModal(); location.hash = '#/tee-time'; toast('Round ' + pad2(f.round) + ' was set on Tee Time — change its date there.'); return; }
       openModal({
         title: 'Round ' + pad2(f.round) + ' — date & course', sub: 'Pairings stay locked to keep the season balanced.',
         body: '<div class="row-2"><div class="field"><label for="feDate">Date</label><input class="input" type="date" id="feDate" value="' + esc(f.date || '') + '"></div>' +
@@ -802,11 +819,315 @@
     });
   }
 
+  /* ------------------------------------------------------------------ TEE TIME */
+  // Find the next date all four can play. The calendar opens three weeks after
+  // the last round (rules in teetime.js) and feeds straight into the fixture.
+  var TEE_PLAYER_KEY = 'dd-tee-player';
+  var tee = { player: null, pending: {}, inflight: null, timer: null, error: '', savedAt: 0 };
+  try { tee.player = localStorage.getItem(TEE_PLAYER_KEY) || null; } catch (e) {}
+  function teeTz() { return cfg.timezone || T.TZ; }
+  function time12(t) { if (!t) return ''; var h = +t.slice(0, 2), m = t.slice(3, 5); return ((h + 11) % 12 + 1) + ':' + m + ' ' + (h < 12 ? 'AM' : 'PM'); }
+  function slotLabel(i) { return T.SLOTS[i].label; }
+  function liveProposal(fixtureId) { return (state.data.proposals || []).filter(function (p) { return p.fixtureId === fixtureId && p.status !== 'withdrawn'; })[0] || null; }
+  function proposalById(id) { return (state.data.proposals || []).filter(function (p) { return p.id === id; })[0]; }
+  function lastPlayedFixture() { return E.latestFixture(state.data.fixtures); }
+
+  /** Saved availability with this device's unsaved / in-flight taps laid on top. */
+  function availMap() {
+    var m = {};
+    ids().forEach(function (p) { m[p] = {}; });
+    (state.data.availability || []).forEach(function (a) { if (m[a.playerId]) m[a.playerId][a.weekend] = a.mask; });
+    [tee.inflight, tee.pending].forEach(function (layer) {
+      if (!layer) return;
+      Object.keys(layer).forEach(function (pid) {
+        Object.keys(layer[pid]).forEach(function (w) { var ch = layer[pid][w]; m[pid][w] = T.apply(m[pid][w] || 0, ch.s, ch.c); });
+      });
+    });
+    return m;
+  }
+  function teeCtx() {
+    var c = ctx(), f = c.next;
+    if (!f) return { c: c, fixture: null };
+    var last = lastPlayedFixture(), today = T.today(teeTz());
+    var win = T.windowFor({ lastPlayed: last ? last.date : null, today: today, weeks: f.teeWeeks });
+    var players = ids().filter(function (p) { return f.teamA.indexOf(p) !== -1 || f.teamB.indexOf(p) !== -1; });
+    var o = { players: players, weekends: win.weekends, avail: availMap(), today: today, preferred: cfg.teePreferredWindows || [] };
+    return { c: c, fixture: f, last: last, today: today, win: win, o: o, players: players, best: T.best(o), overlaps: T.overlaps(o).slice(0, 3), blocker: T.blocker(o), proposal: liveProposal(f.id) };
+  }
+
+  function renderTeeTime() {
+    var c = ctx();
+    var html = '<div class="page container">' + hero('Tee Time', 'Pick your name, tap when you’re free, and the next date sorts itself out.', roundMeta(c));
+    if (state.data.tee && state.data.tee.ready === false) {
+      html += '<div class="card empty"><div class="empty-icon">' + ICON.alert + '</div><h4>Tee Time needs a one-off database update</h4><p>Run the latest <b>supabase-schema.sql</b> in the Supabase SQL Editor (see the README), then refresh. Everything else on the site is unaffected.</p></div>';
+    } else if (!c.next) {
+      html += '<div class="card empty"><div class="empty-icon">' + ICON.trophy + '</div><h4>Season complete</h4><p>Every round of ' + esc(seasonLabel(c.season)) + ' has been played. There’s nothing left to schedule.</p></div>';
+    } else {
+      var t = teeCtx();
+      html += teeNextCard(t) + teeAvailCard(t) + teeOverlapCard(t) + teeFootnote(t);
+    }
+    app.innerHTML = html + '</div>';
+  }
+
+  function teeNextCard(t) {
+    var f = t.fixture, p = t.proposal, box;
+    if (p && p.status === 'scheduled') {
+      box = '<div class="tn-box scheduled"><span class="tn-icon">' + ICON.flag + '</span><div class="tn-main"><span class="tn-k">Scheduled</span>' +
+        '<span class="tn-when">' + T.shortDate(p.date) + ' · ' + time12(p.teeTime) + '</span><span class="tn-sub">' + esc(p.course) + ' · all four confirmed. Booking the course is up to you.</span></div>' +
+        '<div class="tn-actions"><button class="btn btn-ghost btn-sm" data-tee="schedule" data-id="' + p.id + '">' + ICON.edit + 'Change</button><button class="btn btn-ghost btn-sm" data-tee="withdraw" data-id="' + p.id + '">Cancel</button></div></div>';
+    } else if (p) {
+      var st = T.proposalState(t.players, p.responses), me = tee.player, mine = me ? p.responses[me] : null;
+      box = '<div class="tn-box proposed' + (st.declined.length ? ' declined' : '') + '"><span class="tn-icon">' + ICON.flag + '</span><div class="tn-main"><span class="tn-k">Proposed round</span>' +
+        '<span class="tn-when">' + T.shortDate(p.date) + ' · ' + slotLabel(p.slot) + '</span>' +
+        '<div class="tn-chips">' + t.players.map(function (id) {
+          var r = p.responses[id], cls = r === 'yes' ? 'yes' : r === 'no' ? 'no' : 'wait';
+          return '<span class="tn-chip ' + cls + '">' + avatar(id, 'xs') + esc(nm(id)) + '<b>' + (r === 'yes' ? 'In' : r === 'no' ? 'Can’t' : 'Waiting') + '</b></span>';
+        }).join('') + '</div>' +
+        '<span class="tn-sub">' + (st.allIn ? 'All four are in — set the tee time once the course is booked.' : st.declined.length ? esc(listNames(st.declined.map(nm))) + ' can’t make it. Withdraw it and pick another time.' : st.confirmed.length + ' of ' + t.players.length + ' confirmed') + '</span></div>' +
+        '<div class="tn-actions">' + (st.allIn ? '<button class="btn btn-primary" data-tee="schedule" data-id="' + p.id + '">' + ICON.check + 'Set tee time</button>'
+          : me ? '<button class="btn ' + (mine === 'yes' ? 'btn-primary' : 'btn-ghost') + ' btn-sm" data-tee="respond" data-id="' + p.id + '" data-r="yes" aria-pressed="' + (mine === 'yes') + '">' + ICON.check + 'I’m in</button><button class="btn ' + (mine === 'no' ? 'btn-danger' : 'btn-ghost') + ' btn-sm" data-tee="respond" data-id="' + p.id + '" data-r="no" aria-pressed="' + (mine === 'no') + '">Can’t make it</button>'
+          : '<span class="small muted">Pick your name below to reply</span>') +
+        '<button class="btn-link" data-tee="withdraw" data-id="' + p.id + '">Withdraw</button></div></div>';
+    } else if (t.best) {
+      box = '<div class="tn-box best"><span class="tn-icon">' + ICON.flag + '</span><div class="tn-main"><span class="tn-k">Best next time</span>' +
+        '<span class="tn-when">' + T.shortDate(t.best.date) + ' · ' + t.best.label + '</span><span class="tn-count">' + t.best.yes.length + '/' + t.players.length + ' available</span></div>' +
+        '<div class="tn-actions"><button class="btn btn-primary" data-tee="propose" data-w="' + t.best.weekend + '" data-d="' + t.best.day + '" data-s="' + t.best.slot + '">Propose round</button></div></div>';
+    } else {
+      var b = t.blocker, alt = t.overlaps[0];
+      box = '<div class="tn-box none"><span class="tn-icon">' + ICON.calendar + '</span><div class="tn-main"><span class="tn-k">No time works for all four yet</span>' +
+        '<span class="tn-msg">' + (b.kind === 'waiting' ? waitingText(t) : 'Everyone’s answered, but there’s no time all four can make. Add two more weekends.') + '</span>' +
+        (alt ? '<span class="tn-sub">Closest so far: ' + T.shortDate(alt.date) + ' · ' + alt.label + ' · ' + alt.yes.length + '/' + t.players.length + '</span>' : '') + '</div>' +
+        (b.kind === 'no-overlap' && t.win.weeks < T.MAX_WEEKS ? '<div class="tn-actions"><button class="btn btn-primary btn-sm" data-tee="extend">' + ICON.plus + '2 more weekends</button></div>' : '') + '</div>';
+    }
+    return '<section class="card tee-next" aria-label="Next fixture"><div class="tn-top"><span class="tn-round">Round ' + pad2(f.round) + '</span>' +
+      '<span class="tn-pair">' + esc(teamName(f.teamA)) + ' <i>v</i> ' + esc(teamName(f.teamB)) + '</span>' +
+      '<span class="tn-last">' + (t.last ? 'Last round: ' + T.shortDate(t.last.date) + ' (Round ' + pad2(t.last.round) + ')' : 'First round of the season') + '</span></div>' + box + '</section>';
+  }
+
+  /** "Waiting on Forrest to fill in availability." + who still has weekends left. */
+  function waitingText(t) {
+    var r = T.responses(t.o), none = r.filter(function (x) { return !x.answered; }).map(function (x) { return nm(x.id); });
+    var part = r.filter(function (x) { return x.answered && !x.complete; }).map(function (x) { return nm(x.id); });
+    if (none.length) return 'Waiting on ' + esc(listNames(none)) + ' to fill in availability.' + (part.length ? '<span class="tn-sub">' + esc(listNames(part)) + (part.length > 1 ? ' still have' : ' still has') + ' weekends to fill in.</span>' : '');
+    return 'Waiting on ' + esc(listNames(part)) + ' to finish filling in availability.';
+  }
+  function saveBadge() {
+    if (tee.error) return '<button class="tee-save err" data-tee="retry">' + ICON.alert + 'Not saved — retry</button>';
+    if (tee.inflight || Object.keys(tee.pending).length) return '<span class="tee-save busy"><span class="spinner dark"></span>Saving…</span>';
+    if (tee.savedAt) return '<span class="tee-save ok">' + ICON.check + 'Saved</span>';
+    return '<span class="tee-save"></span>';
+  }
+
+  function teeAvailCard(t) {
+    var me = t.players.indexOf(tee.player) !== -1 ? tee.player : null;
+    var bestKey = t.best ? t.best.weekend + ':' + t.best.day + ':' + t.best.slot : '';
+    var resp = {}; T.responses(t.o).forEach(function (r) { resp[r.id] = r; });
+    var who = '<div class="tee-who"><span class="tee-editing">' + ICON.users + (me ? 'Editing: <b>' + esc(nm(me)) + '</b>' : 'Who are you?') + '</span>' +
+      '<div class="tee-pick" role="radiogroup" aria-label="Whose availability">' + t.players.map(function (id) {
+        return '<label class="tee-radio"><input type="radio" name="teeWho" value="' + id + '"' + (id === me ? ' checked' : '') + '><span class="dot"></span>' + esc(nm(id)) + '</label>';
+      }).join('') + '</div></div>';
+    var weeks = t.win.weekends.map(function (w, wi) {
+      var mine = me ? t.o.avail[me][w] : undefined, answered = mine !== undefined;
+      var isBest = bestKey.indexOf(w + ':') === 0;
+      var head = '<div class="tw-head"><div class="tw-title"><span class="tw-k">Week ' + (wi + 1) + '</span><span class="tw-dates">' + T.weekendLabel(w) + '</span></div>' +
+        '<div class="tw-who" aria-label="Who has answered">' + t.players.map(function (id) {
+          var a = id in t.o.avail && w in t.o.avail[id];
+          return '<span class="tw-av' + (a ? ' in' : '') + '" title="' + esc(nm(id)) + (a ? ' has answered' : ': no response yet') + '">' + avatar(id, 'xs') + '</span>';
+        }).join('') + '</div>' +
+        (me ? '<div class="tw-actions"><button class="btn-link" data-tee="week" data-w="' + w + '" data-v="all">Free all weekend</button><button class="btn-link" data-tee="week" data-w="' + w + '" data-v="none">Can’t make it</button></div>' : '') +
+        (me && !answered ? '<span class="tw-note">Not answered yet</span>' : '') + '</div>';
+      var grid = '<div class="tw-grid' + (me ? '' : ' group') + '"><span class="tw-corner"></span>' + T.DAYS.map(function (d, di) {
+        var date = T.addDays(w, d.offset), past = date < t.today;
+        return me && !past ? '<button class="tw-day" data-tee="day" data-w="' + w + '" data-d="' + di + '" title="Toggle all of ' + d.long + '">' + d.short + ' ' + (+date.slice(8)) + '</button>'
+          : '<span class="tw-day' + (past ? ' past' : '') + '">' + d.short + ' ' + (+date.slice(8)) + '</span>';
+      }).join('') + T.SLOTS.map(function (s, si) {
+        return '<span class="tw-slot">' + s.label + '</span>' + T.DAYS.map(function (d, di) {
+          var date = T.addDays(w, d.offset), past = date < t.today, key = w + ':' + di + ':' + si, lbl = d.long + ' ' + (+date.slice(8)) + ' ' + s.label;
+          var star = key === bestKey ? ' best' : '';
+          if (!me) {
+            var n = t.players.filter(function (p) { return T.cellStatus(t.o.avail, p, w, di, si) === 'yes'; }).length;
+            return '<span class="tw-cell count c' + n + star + (past ? ' past' : '') + '" data-w="' + w + '" data-d="' + di + '" data-s="' + si + '" title="' + lbl + ': ' + n + ' of ' + t.players.length + ' available">' + (n ? n + '/' + t.players.length : '–') + '</span>';
+          }
+          var on = answered && T.has(mine, di, si), cls = past ? 'past' : on ? 'yes' : answered ? 'no' : 'empty';
+          return '<button class="tw-cell ' + cls + star + '" data-tee="cell" data-w="' + w + '" data-d="' + di + '" data-s="' + si + '" aria-pressed="' + on + '" aria-label="' + lbl + (on ? ': available' : ': not available') + '"' + (past ? ' disabled' : '') + '>' + (on ? ICON.check : '<i>–</i>') + '</button>';
+        }).join('');
+      }).join('') + '</div>';
+      return '<div class="tee-week' + (isBest ? ' best' : '') + '">' + head + grid + '</div>';
+    }).join('');
+    return '<section class="card tee-avail" aria-labelledby="teeAvT"><div class="card-head"><h2 id="teeAvT">Availability</h2><span id="teeSave">' + saveBadge() + '</span></div>' + who +
+      (me ? '' : '<p class="tee-hint">Pick your name to fill in your times. Until then you’re seeing how many are free for each slot.</p>') +
+      '<div class="tee-weeks">' + weeks + '</div>' +
+      '<div class="tee-foot"><span class="small muted">' + (me ? 'Tap to toggle. Green means available. Tap a day to fill the whole day.' : 'Numbers show how many of the four are free.') + '</span>' +
+      (t.win.weeks < T.MAX_WEEKS ? '<button class="btn btn-ghost btn-sm" data-tee="extend">' + ICON.plus + 'Show 2 more weekends</button>' : '') + '</div></section>';
+  }
+
+  function teeOverlapCard(t) {
+    var rows = t.overlaps.map(function (o) {
+      var all = o.yes.length === t.players.length;
+      var note = all ? 'Everyone’s free' : [o.no.length ? listNames(o.no.map(nm)) + ' can’t' : '', o.missing.length ? 'awaiting ' + listNames(o.missing.map(nm)) : ''].filter(Boolean).join(' · ');
+      return '<button class="ov-row' + (all ? ' all' : '') + '" data-tee="propose" data-w="' + o.weekend + '" data-d="' + o.day + '" data-s="' + o.slot + '">' + ICON.flag +
+        '<span class="ov-main"><span class="ov-when">' + T.shortDate(o.date) + ' · ' + o.label + ' · <b>' + o.yes.length + '/' + t.players.length + '</b></span><span class="ov-note">' + esc(note) + '</span></span>' + ICON.chevron + '</button>';
+    }).join('');
+    return '<section class="card tee-ov" aria-labelledby="teeOvT"><h2 id="teeOvT">Best overlaps</h2>' +
+      (rows ? '<div class="ov-list">' + rows + '</div>' : '<p class="tee-hint" style="margin:10px 0 0">Nothing yet. As soon as two of you are free at the same time, it shows up here.</p>') + '</section>';
+  }
+
+  function teeFootnote(t) {
+    var f = t.fixture, txt;
+    if (!t.last) txt = 'First round of the season, so availability is open from this weekend.';
+    else if (t.win.slid) txt = 'Availability opens three weeks after the last round. Those weekends have passed, so the calendar starts from this weekend.';
+    else txt = 'Availability opens three weeks after the last round. Round ' + pad2(t.last.round) + ' was ' + T.shortDate(t.last.date) + ', so Round ' + pad2(f.round) + ' opens the weekend of ' + T.shortDate(t.win.start) + '.';
+    return '<p class="tee-note">' + ICON.info + '<span>' + txt + '</span></p>';
+  }
+
+  /* ---- saving availability: instant on screen, batched to the database ---- */
+  function queueAvail(w, set, clear) {
+    var me = tee.player; if (!me) return;
+    var byP = tee.pending[me] = tee.pending[me] || {};
+    var p = byP[w] || { s: 0, c: 0 };
+    p.s = (p.s | set) & ~clear; p.c = (p.c | clear) & ~set;
+    byP[w] = p; tee.error = '';
+    render();
+    clearTimeout(tee.timer); tee.timer = setTimeout(flushAvail, 450);
+  }
+  async function flushAvail() {
+    clearTimeout(tee.timer);
+    if (tee.inflight || !Object.keys(tee.pending).length) return;
+    var batch = tee.pending; tee.pending = {}; tee.inflight = batch;
+    try {
+      for (var pid in batch) {
+        var changes = Object.keys(batch[pid]).map(function (w) { return { w: w, s: batch[pid][w].s, c: batch[pid][w].c }; });
+        for (var i = 0; i < changes.length; i += 30) {
+          var rows = await state.store.setAvailability(pid, changes.slice(i, i + 30));
+          (rows || []).forEach(function (r) {
+            var hit = state.data.availability.filter(function (a) { return a.playerId === pid && a.weekend === r.w; })[0];
+            if (hit) hit.mask = r.mask; else state.data.availability.push({ playerId: pid, weekend: r.w, mask: r.mask });
+          });
+          changes.slice(i, i + 30).forEach(function (ch) { delete batch[pid][ch.w]; });   // saved — no longer in flight
+        }
+      }
+      tee.savedAt = Date.now(); tee.error = '';
+    } catch (e) {
+      // keep everything that didn't save, with any newer taps taking precedence
+      Object.keys(batch).forEach(function (pid) {
+        Object.keys(batch[pid]).forEach(function (w) {
+          var old = batch[pid][w], nw = (tee.pending[pid] || {})[w];
+          tee.pending[pid] = tee.pending[pid] || {};
+          tee.pending[pid][w] = nw ? { s: (old.s & ~nw.c) | nw.s, c: (old.c & ~nw.s) | nw.c } : old;
+        });
+      });
+      tee.error = e.message || 'Could not save';
+      toast('Availability not saved: ' + tee.error, 'error');
+    }
+    tee.inflight = null;
+    if (Object.keys(tee.pending).length && !tee.error) return flushAvail();
+    if (state.route && state.route.page === 'tee-time') render();
+  }
+  function teeBusy() { return !!(tee.inflight || Object.keys(tee.pending).length); }
+  window.addEventListener('beforeunload', function (e) { if (teeBusy()) { flushAvail(); e.preventDefault(); e.returnValue = ''; } });
+
+  function toastUndo(msg, undo) {
+    var el = document.createElement('div');
+    el.className = 'toast';
+    el.innerHTML = ICON.check + '<div>' + esc(msg) + '</div><button type="button" class="toast-undo">Undo</button>';
+    $('#toasts').appendChild(el);
+    var gone = false;
+    function close() { if (gone) return; gone = true; el.classList.add('leaving'); setTimeout(function () { el.remove(); }, 320); }
+    $('.toast-undo', el).onclick = function () { undo(); close(); };
+    setTimeout(close, 6000);
+  }
+
+  /* ---- proposing and scheduling ---- */
+  async function teeAct(promise, ok, btn) {
+    if (btn) busy(btn, true, 'Saving…');
+    try { await promise; closeModal(); if (ok) toast(ok); await refresh(); return true; }
+    catch (e) { if (btn) busy(btn, false); toast(e.message || 'Something went wrong.', 'error'); await refresh(); return false; }
+  }
+  function openPropose(w, di, si) {
+    var t = teeCtx(); if (!t.fixture) return;
+    if (t.proposal) { toast('Round ' + pad2(t.fixture.round) + ' already has a proposed date — withdraw it first to pick another.', 'error'); return; }
+    var date = T.addDays(w, +di), c = T.overlaps(t.o).filter(function (x) { return x.weekend === w && x.day === +di && x.slot === +si; })[0];
+    var yes = c ? c.yes : [], no = c ? c.no : [], missing = c ? c.missing : t.players;
+    var me = t.players.indexOf(tee.player) !== -1 ? tee.player : null;
+    openModal({
+      title: 'Propose Round ' + pad2(t.fixture.round), sub: esc(teamName(t.fixture.teamA)) + ' v ' + esc(teamName(t.fixture.teamB)),
+      body: '<div class="tn-box best" style="margin:0 0 14px"><span class="tn-icon">' + ICON.flag + '</span><div class="tn-main"><span class="tn-k">Proposed time</span><span class="tn-when">' + T.shortDate(date) + ' · ' + slotLabel(+si) + '</span><span class="tn-count">' + yes.length + '/' + t.players.length + ' available</span></div></div>' +
+        (yes.length < t.players.length ? '<div class="callout">Not everyone is free: ' + esc([no.length ? listNames(no.map(nm)) + ' can’t make it' : '', missing.length ? listNames(missing.map(nm)) + ' hasn’t answered' : ''].filter(Boolean).join('; ')) + '. Everyone still has to confirm before it’s set.</div>' : '') +
+        '<p style="margin:0">Each player confirms or declines. Once all four are in, set the tee time and course.' + (me ? ' You’ll be marked as in, ' + esc(nm(me)) + '.' : '') + '</p>',
+      foot: '<button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="tpGo">' + ICON.flag + 'Propose round</button>',
+      mount: function (m) { $('#tpGo', m).onclick = function () { teeAct(state.store.proposeRound({ fixtureId: t.fixture.id, date: date, slot: +si, playerId: me }), 'Round ' + pad2(t.fixture.round) + ' proposed for ' + T.shortDate(date) + '. Over to the others to confirm.', this); }; }
+    });
+  }
+  function openSchedule(id) {
+    var p = proposalById(id), f = fixtureById(p.fixtureId);
+    openModal({
+      title: (p.status === 'scheduled' ? 'Change' : 'Set') + ' tee time', sub: 'Round ' + pad2(f.round) + ' · ' + T.shortDate(p.date) + ' · ' + slotLabel(p.slot),
+      body: HONEYPOT + '<div class="row-2 keep"><div class="field"><label for="tsTime">Tee-off time</label><input class="input" type="time" id="tsTime" value="' + esc(p.teeTime || T.SLOTS[p.slot].start) + '"></div>' +
+        '<div class="field"><label for="tsCourse">Golf course</label><input class="input" id="tsCourse" list="courseList" maxlength="80" value="' + esc(p.course || f.course || '') + '" placeholder="e.g. Wembley Golf Course">' + courseDatalist() + '</div></div>' +
+        '<div class="field-error" id="tsErr" role="alert"></div><p class="small muted" style="margin:0">This puts the round on the fixture list for everyone. Booking the course is still up to you.</p>',
+      foot: '<button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="tsGo">' + ICON.check + 'Save</button>',
+      mount: function (m) {
+        $('#tsGo', m).onclick = function () {
+          if (trapped(m)) { closeModal(); return; }
+          var tt = $('#tsTime', m).value, course = $('#tsCourse', m).value.trim();
+          if (!tt) { $('#tsErr', m).textContent = 'Enter the tee-off time.'; return; }
+          if (!course) { $('#tsErr', m).textContent = 'Enter the golf course.'; return; }
+          teeAct(state.store.scheduleFixture(p.id, { teeTime: tt, course: course }), 'Round ' + pad2(f.round) + ' set for ' + T.shortDate(p.date) + ', ' + time12(tt) + ' at ' + course + '.', this);
+        };
+      }
+    });
+  }
+
+  document.addEventListener('change', function (e) {
+    if (e.target.name !== 'teeWho') return;
+    flushAvail();
+    tee.player = e.target.value;
+    try { localStorage.setItem(TEE_PLAYER_KEY, tee.player); } catch (x) {}
+    render();
+  });
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-tee]'); if (!b || !state.data || b.disabled) return;
+    var a = b.dataset.tee, w = b.dataset.w;
+    var mask = function () { return tee.player ? availMap()[tee.player][w] : undefined; };
+    if (a === 'cell') {
+      var bt = T.bit(+b.dataset.d, +b.dataset.s), m0 = mask();
+      if (m0 !== undefined && (m0 & bt)) queueAvail(w, 0, bt); else queueAvail(w, bt, 0);
+    } else if (a === 'day') {
+      var db = T.dayBits(+b.dataset.d), m1 = mask() || 0;
+      if ((m1 & db) === db) queueAvail(w, 0, db); else queueAvail(w, db, 0);
+    } else if (a === 'week') {
+      var before = mask(), pid = tee.player, wk = w;
+      if (b.dataset.v === 'all') queueAvail(w, T.FULL_MASK, 0); else queueAvail(w, 0, T.FULL_MASK);
+      if (before !== undefined) toastUndo(b.dataset.v === 'all' ? 'Whole weekend marked free.' : 'Marked as can’t make it.', function () {
+        if (tee.player !== pid) return;
+        queueAvail(wk, before, T.FULL_MASK & ~before);
+      });
+    } else if (a === 'retry') { tee.error = ''; flushAvail(); render(); }
+    else if (a === 'extend') {
+      var t = teeCtx(); if (!t.fixture) return;
+      teeAct(state.store.extendWindow(t.fixture.id), 'Two more weekends added.', b);
+    } else if (a === 'propose') openPropose(w, b.dataset.d, b.dataset.s);
+    else if (a === 'respond') {
+      if (!tee.player) { toast('Pick your name first.', 'error'); return; }
+      teeAct(state.store.respondProposal(b.dataset.id, tee.player, b.dataset.r), b.dataset.r === 'yes' ? 'You’re in, ' + nm(tee.player) + '.' : 'Noted — ' + nm(tee.player) + ' can’t make it.', b);
+    } else if (a === 'withdraw') {
+      var p = proposalById(b.dataset.id);
+      confirmDialog(p.status === 'scheduled' ? 'Cancel this tee time?' : 'Withdraw this proposal?', (p.status === 'scheduled' ? 'The round comes off the fixture list’s date and tee time. ' : '') + 'Everyone’s availability is kept, so you can propose another time straight away.', p.status === 'scheduled' ? 'Cancel tee time' : 'Withdraw', true)
+        .then(function (ok) { if (ok) teeAct(state.store.withdrawProposal(p.id), p.status === 'scheduled' ? 'Tee time cancelled.' : 'Proposal withdrawn.'); });
+    } else if (a === 'schedule') openSchedule(b.dataset.id);
+  });
+  // Keep the page current while people are filling it in on other phones.
+  setInterval(function () {
+    if (MODE !== 'live' || !state.route || state.route.page !== 'tee-time' || document.visibilityState !== 'visible') return;
+    if (teeBusy() || !$('#modalRoot').hidden) return;
+    refresh();
+  }, 15000);
+
   /* ------------------------------------------------------------------ routing & render */
   function parseRoute() {
     var h = (location.hash || '#/clubhouse').replace(/^#\/?/, '').split('/');
     var page = h[0] || 'clubhouse';
-    if (['clubhouse', 'fixtures', 'players', 'fines'].indexOf(page) === -1) page = 'clubhouse';
+    if (['clubhouse', 'fixtures', 'tee-time', 'players', 'fines'].indexOf(page) === -1) page = 'clubhouse';
     return { page: page, id: h[1] || null };
   }
   function render(scrollTop) {
@@ -819,8 +1140,9 @@
     else if (r.page === 'fixtures') renderFixtures();
     else if (r.page === 'players') { if (r.id) renderPlayer(r.id); else renderPlayers(); }
     else if (r.page === 'fines') renderFines();
+    else if (r.page === 'tee-time') renderTeeTime();
     if (!scrollTop) { var pg = $('.page', app); if (pg) pg.style.animation = 'none'; }   // data refresh: no page-in animation
-    var titles = { clubhouse: 'The Clubhouse', fixtures: 'Fixtures', players: r.id ? nm(r.id) : 'Players', fines: 'The Disciplinary Committee' };
+    var titles = { clubhouse: 'The Clubhouse', fixtures: 'Fixtures', 'tee-time': 'Tee Time', players: r.id ? nm(r.id) : 'Players', fines: 'The Disciplinary Committee' };
     document.title = titles[r.page] + ' · Designated Drivers';
     if (scrollTop) window.scrollTo(0, 0);
   }

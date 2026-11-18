@@ -31,7 +31,9 @@ const SAT = 1, SUN = 2, EA = 0, LA = 1;
     // ---------- 1. the tab, the next fixture, the 21-day window
     await fresh();
     const nav = await page.$$eval(vp.width < 980 ? '.tabbar a' : '.main-nav a', (a) => a.map((x) => x.textContent.trim()));
-    assert.deepStrictEqual(nav, ['Clubhouse', 'Fixtures', 'Tee Time', 'Players', 'Fines']);
+    assert.deepStrictEqual(nav, ['Clubhouse', 'Fixtures', 'Tee Time', 'Players']);
+    const phone = vp.width < 700;
+    const menu = async (act) => { await page.click('.tab-submit'); await page.click(`[data-act="${act}"]`); };
     assert.match(await text('.tee-next'), /Round 05/);
     assert.match(await text('.tee-next'), /Jones & Pirie v Fitz & Forrest/);
     assert.match(await text('.tee-next'), /Last round: Sun 15 Nov \(Round 04\)/);
@@ -100,7 +102,14 @@ const SAT = 1, SUN = 2, EA = 0, LA = 1;
 
     // ---------- 7. propose -> everyone confirms -> set tee time -> appears on Fixtures and Clubhouse
     await pick('jones');
-    await page.click('.tn-box.best [data-tee="propose"]');
+    if (phone) {
+      // + → Schedule Fixture goes to the same propose step for the best time
+      await page.goto(BASE + '#/clubhouse'); await page.waitForSelector('.standings');
+      await page.click('.tab-submit');
+      assert.match(await text('[data-act="schedule"]'), /Propose .* · Early AM for Round 05 \(4\/4 free\)/);
+      await page.click('[data-act="schedule"]'); await page.waitForSelector('#tpGo');
+      assert.strictEqual(await page.$eval('.tabbar a.active', (a) => a.textContent.trim()), 'Tee Time');
+    } else await page.click('.tn-box.best [data-tee="propose"]');
     assert.match(await text('.modal'), /You’ll be marked as in, Jones/);
     await page.click('#tpGo');
     await page.waitForSelector('.tn-box.proposed');
@@ -118,7 +127,8 @@ const SAT = 1, SUN = 2, EA = 0, LA = 1;
     await pick('forrest'); await page.click('[data-tee="respond"][data-r="yes"]');
     await page.waitForSelector('[data-tee="schedule"]');
     assert.match(await text('.tn-box'), /All four are in/);
-    await page.click('[data-tee="schedule"]');
+    if (phone) { await page.click('.tab-submit'); assert.match(await text('[data-act="schedule"]'), /set the tee time for Round 05/); await page.click('[data-act="schedule"]'); }
+    else await page.click('[data-tee="schedule"]');
     assert.strictEqual(await page.inputValue('#tsTime'), '07:00', 'Early AM suggests 7:00');
     await page.fill('#tsTime', '07:40'); await page.fill('#tsCourse', 'Wembley Golf Course');
     await page.click('#tsGo');
@@ -136,7 +146,8 @@ const SAT = 1, SUN = 2, EA = 0, LA = 1;
 
     // ---------- 8. result entered -> Tee Time moves to Round 06 and re-applies the 21-day rule
     const played = TODAY;                                  // the submit form won't take a future date
-    await page.click(vp.width < 700 ? '.tab-submit' : '.btn-submit'); await page.waitForSelector('#srRound');
+    if (phone) await menu('record'); else await page.click('.btn-submit');
+    await page.waitForSelector('#srRound');
     assert.ok((await page.$$eval('#srRound option', (o) => o.map((x) => x.textContent)))[0].startsWith('Round 05'));
     await page.fill('#srDate', played); await page.fill('#srA', '80'); await page.fill('#srB', '76'); await page.click('#srSave');
     await page.waitForFunction(() => /Round 05/.test((document.querySelector('.latest-card') || {}).textContent || ''));

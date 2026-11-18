@@ -64,7 +64,7 @@ const FAKE = `
   assert.match(await page.textContent('.hero-meta'), /Lake Karrinyup/);
   assert.match(await page.textContent('.latest-card'), /75 – 79/);
   assert.ok(!/sign in|log ?in|password/i.test(await page.textContent('body')));
-  await page.click('.tab-submit'); await page.waitForSelector('#srRound');
+  await page.click('.tab-submit'); await page.click('[data-act="record"]'); await page.waitForSelector('#srRound');
   await page.fill('#srCourse', 'Lake Karrinyup'); await page.fill('#srA', '81'); await page.fill('#srB', '81'); await page.click('#srSave');
   await page.waitForFunction(() => document.querySelector('.latest-card') && /81 – 81/.test(document.querySelector('.latest-card').textContent));
   assert.deepStrictEqual(await pts(page), ['Jones:3', 'Fitz:3', 'Pirie:1', 'Forrest:1']);
@@ -132,7 +132,7 @@ const FAKE = `
   // --- site deployed before the database was updated: reads work, writes explain what to do
   page = await open(() => { window.__oldDb = true; });
   assert.deepStrictEqual(await pts(page), ['Jones:2', 'Fitz:2', 'Pirie:0', 'Forrest:0']);
-  await page.click('.tab-submit'); await page.waitForSelector('#srRound');
+  await page.click('.tab-submit'); await page.click('[data-act="record"]'); await page.waitForSelector('#srRound');
   await page.fill('#srCourse', 'X'); await page.fill('#srA', '80'); await page.fill('#srB', '70'); await page.click('#srSave');
   await page.waitForSelector('.toast.error');
   assert.match(await page.textContent('.toast.error'), /run the latest supabase-schema\.sql/);

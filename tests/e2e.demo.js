@@ -17,20 +17,36 @@ const SHOTS = process.env.DD_SHOTS || '';
     const go = async (hash, sel) => { await page.goto(BASE + '#/' + hash); await page.waitForSelector(sel); };
     const pts = async () => { await go('clubhouse', '.standings tbody tr'); return page.$$eval('.standings tbody tr', (rows) => Object.fromEntries(rows.map((r) => [r.querySelector('.name').textContent, +r.querySelector('.pts-box').textContent]))); };
     const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('dd-demo-data-v5')));
-    const submitBtn = vp.width < 700 ? '.tab-submit' : '.btn-submit';
+    const phone = vp.width < 700;
+    // phones: centre + opens the action sheet; desktop: the header Submit Result button
+    const openRecord = async () => { if (phone) { await page.click('.tab-submit'); await page.click('[data-act="record"]'); } else await page.click('.btn-submit'); };
 
     await page.goto(BASE + '#/clubhouse'); await page.evaluate(() => localStorage.clear()); await page.reload();
     assert.deepStrictEqual(await pts(), { Jones: 7, Fitz: 5, Pirie: 3, Forrest: 1 });
 
     // --- four sections, no Tee Sheet, no Records, no login anywhere
     const nav = await page.$$eval(vp.width < 980 ? '.tabbar a' : '.main-nav a', (a) => a.map((x) => x.textContent.trim()));
-    assert.deepStrictEqual(nav, ['Clubhouse', 'Fixtures', 'Tee Time', 'Players', 'Fines']);
+    assert.deepStrictEqual(nav, ['Clubhouse', 'Fixtures', 'Tee Time', 'Players']);
+    if (phone) {
+      // bottom bar: Clubhouse, Fixtures, +, Tee Time, Players — evenly spaced, no + in the header
+      const bar = await page.$$eval('.tabbar > *', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return [e.textContent.trim() || '+', r.left + r.width / 2]; }));
+      assert.deepStrictEqual(bar.map((x) => x[0]), ['Clubhouse', 'Fixtures', '+', 'Tee Time', 'Players']);
+      const gaps = bar.slice(1).map((x, i) => x[1] - bar[i][1]);
+      assert.ok(Math.max(...gaps) - Math.min(...gaps) < 6, 'evenly spaced: ' + gaps);
+      assert.ok(!(await page.isVisible('.btn-submit')), 'no + in the header on phones');
+      // the action sheet
+      await page.click('.tab-submit');
+      assert.deepStrictEqual(await page.$$eval('.act-t', (t) => t.map((x) => x.textContent)), ['Record Round', 'Add Fine', 'Schedule Fixture']);
+      assert.strictEqual(await page.getAttribute('.tab-submit', 'aria-expanded'), 'true');
+      await page.click('.modal [data-close]');
+      assert.strictEqual(await page.getAttribute('.tab-submit', 'aria-expanded'), 'false');
+    }
     assert.ok(!/sign in|log ?in|password/i.test(await page.textContent('body')), 'no login wording on the page');
     for (const gone of ['records', 'tee-sheet']) { await page.goto(BASE + '#/' + gone); await page.waitForSelector('.standings'); assert.match(await page.textContent('.hero'), /The Clubhouse/); }
     await page.waitForTimeout(900); await shot('1-clubhouse', true);
 
     // --- submit a result in one screen: round, course, date, two scores, submit
-    await page.click(submitBtn); await page.waitForSelector('#srRound');
+    await openRecord(); await page.waitForSelector('#srRound');
     const opts = await page.$$eval('#srRound option', (o) => o.map((x) => x.textContent));
     assert.ok(opts[0].startsWith('Round 05'), 'next unplayed round preselected');
     assert.ok(!opts.some((o) => /Round 0[1-4]/.test(o)), 'played rounds are not offered (duplicate protection)');
@@ -50,7 +66,7 @@ const SHOTS = process.env.DD_SHOTS || '';
     assert.strictEqual((await stored()).fixtures.filter((f) => f.status === 'completed').length, 5);
 
     // --- a bot filling the hidden field saves nothing
-    await page.click(submitBtn); await page.waitForSelector('#srRound');
+    await openRecord(); await page.waitForSelector('#srRound');
     await page.fill('#srCourse', 'Spam Links'); await page.fill('#srA', '70'); await page.fill('#srB', '71');
     await page.evaluate(() => { document.querySelector('.modal .hp').value = 'http://spam.example'; });
     await page.click('#srSave'); await page.waitForTimeout(500);
@@ -72,6 +88,10 @@ const SHOTS = process.env.DD_SHOTS || '';
     await page.fill('#feCourse', 'Secret Harbour'); await page.click('#feSave');
     await page.waitForFunction(() => /Secret Harbour/.test(document.querySelector('[data-fixture="demo-fx-6"]').textContent));
 
+    // --- fines live inside Players: switch between the two, Players tab stays highlighted
+    await go('players', '.player-card');
+    await page.click('.seg a[href="#/fines"]'); await page.waitForSelector('.fines-hero-stats');
+    assert.strictEqual(await page.$eval(phone ? '.tabbar a.active' : '.main-nav a.active', (a) => a.textContent.trim()), 'Players');
     // --- fines: exactly the five offences on the tariff
     await go('fines', '.fines-hero-stats');
     assert.deepStrictEqual(await page.$$eval('.tariff-item', (t) => t.map((x) => x.innerText.replace(/\s+/g, ' ').trim())),
@@ -90,8 +110,8 @@ const SHOTS = process.env.DD_SHOTS || '';
     await page.click('#fnSave');
     await page.waitForFunction(() => /7 offences/.test(document.querySelector('.fines-hero-stats').textContent));
     assert.match(await page.textContent('.fines-hero-stats'), /\$44/);
-    // the same fine again straight away is treated as a double tap
-    await page.click('[data-action="add-fine"]'); await page.click('.pick-item:has(input[value="jones"])'); await page.selectOption('#fnC', { label: 'No-show — $20' }); await page.click('#fnSave');
+    // the same fine again straight away is treated as a double tap (phones: via the + sheet)
+    if (phone) { await page.click('.tab-submit'); await page.click('[data-act="fine"]'); } else await page.click('[data-action="add-fine"]'); await page.click('.pick-item:has(input[value="jones"])'); await page.selectOption('#fnC', { label: 'No-show — $20' }); await page.click('#fnSave');
     await page.waitForSelector('.toast.error');
     assert.match(await page.textContent('.toast.error'), /not adding it twice/);
     await page.click('.modal [data-close]');

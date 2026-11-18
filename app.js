@@ -623,7 +623,12 @@
         '<span style="margin-top:10px">' + formHtml(r.form) + '</span>' + (p.quote ? '<span class="pc-quote">“' + esc(p.quote) + '”</span>' : '') + '</a>';
     }).join('');
     app.innerHTML = '<div class="page container">' + hero('The Field', 'Four golfers. Twelve rounds. One championship.', roundMeta(c)) +
+      '<div class="toolbar">' + playersSwitch('players') + '</div>' +
       '<div class="grid grid-4 players-grid">' + cards + '</div></div>';
+  }
+  /** Fines live inside the Players tab: a two-way switch at the top of both pages. */
+  function playersSwitch(on) {
+    return '<nav class="seg" aria-label="Players or fines"><a href="#/players"' + (on === 'players' ? ' class="on" aria-current="page"' : '') + '>Players</a><a href="#/fines"' + (on === 'fines' ? ' class="on" aria-current="page"' : '') + '>Fines</a></nav>';
   }
   function ordinal(n) { var s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
   function formHtml(form) { var f = form.slice(-5); return '<span class="form" aria-label="Recent form">' + (f.length ? f.map(function (x) { return '<span class="' + x + '">' + x + '</span>'; }).join('') : '<span class="none">No form yet</span>') + '</span>'; }
@@ -724,7 +729,7 @@
     var hist = c.fines.slice().sort(function (a, b) { return (b.createdAt || '').localeCompare(a.createdAt || ''); });
     var cats = state.data.fineCategories.slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
     app.innerHTML = '<div class="page container">' + hero('The Disciplinary Committee', 'Justice is swift, fair and payable in cash. Fines fund the end-of-season dinner and have no bearing on championship points.', '') +
-      ('<div class="toolbar"><span></span><div class="btn-row"><button class="btn btn-cream" data-action="add-category">' + ICON.plus + 'New offence</button><button class="btn btn-gold" data-action="add-fine">' + ICON.gavel + 'Issue a fine</button></div></div>') +
+      ('<div class="toolbar">' + playersSwitch('fines') + '<div class="btn-row"><button class="btn btn-cream" data-action="add-category">' + ICON.plus + 'New offence</button><button class="btn btn-gold" data-action="add-fine">' + ICON.gavel + 'Issue a fine</button></div></div>') +
       '<div class="grid grid-4 fines-hero-stats">' +
       '<div class="card stat" style="border:0">' + '<span class="stat-icon">' + ICON.coins + '</span><span class="stat-body"><span class="stat-label">Total fines pot</span><div class="stat-value">' + money(fs.total) + '</div><div class="stat-sub">' + plural(fs.count, 'offence') + '</div></span></div>' +
       '<div class="card stat" style="border:0"><span class="stat-icon">' + ICON.check + '</span><span class="stat-body"><span class="stat-label">Paid</span><div class="stat-value">' + money(fs.paid) + '</div><div class="stat-sub">Settled with the treasurer</div></span></div>' +
@@ -1123,6 +1128,46 @@
     refresh();
   }, 15000);
 
+  /* ------------------------------------------------------------------ QUICK ACTIONS (centre + button) */
+  // Three shortcuts into the existing flows — nothing here records anything itself.
+  function scheduleAction() {
+    var c = ctx();
+    if (state.data.tee && state.data.tee.ready === false) return { sub: 'Needs the latest database update', run: function () { goThen('#/tee-time'); } };
+    if (!c.next) return { sub: 'Every round has been played', disabled: true };
+    var t = teeCtx(), r = 'Round ' + pad2(t.fixture.round), p = t.proposal;
+    if (p && p.status === 'scheduled') return { sub: r + ' is set for ' + T.shortDate(p.date) + ', ' + time12(p.teeTime) + ' — change it', run: function () { goThen('#/tee-time', function () { openSchedule(p.id); }); } };
+    if (p) {
+      var st = T.proposalState(t.players, p.responses);
+      if (st.allIn) return { sub: 'Everyone’s in — set the tee time for ' + r, run: function () { goThen('#/tee-time', function () { openSchedule(p.id); }); } };
+      return { sub: r + ' proposed for ' + T.shortDate(p.date) + ' · waiting on ' + listNames(st.waiting.concat(st.declined).map(nm)), run: function () { goThen('#/tee-time'); } };
+    }
+    if (t.best) { var b = t.best; return { sub: 'Propose ' + T.shortDate(b.date) + ' · ' + b.label + ' for ' + r + ' (4/4 free)', run: function () { goThen('#/tee-time', function () { openPropose(b.weekend, b.day, b.slot); }); } }; }
+    return { sub: 'Fill in availability to find a date for ' + r, run: function () { goThen('#/tee-time'); } };
+  }
+  function openActions() {
+    var c = ctx(), sch = scheduleAction(), plusBtn = $('.tab-submit');
+    var items = [
+      { id: 'record', icon: ICON.flag, title: 'Record Round', sub: c.next ? 'Enter the scores for Round ' + pad2(c.next.round) : 'Correct a result from Fixtures', run: function () { openSubmit(); } },
+      { id: 'fine', icon: ICON.gavel, title: 'Add Fine', sub: 'Pick the offender and the offence', run: function () { openFine(); } },
+      { id: 'schedule', icon: ICON.calendar, title: 'Schedule Fixture', sub: sch.sub, run: sch.run, disabled: sch.disabled }
+    ];
+    openModal({
+      title: 'What’s happening?',
+      body: '<div class="act-list">' + items.map(function (it) {
+        return '<button type="button" class="act" data-act="' + it.id + '"' + (it.disabled ? ' disabled' : '') + '><span class="stat-icon">' + it.icon + '</span><span class="act-txt"><span class="act-t">' + it.title + '</span><span class="act-s">' + esc(it.sub) + '</span></span>' + ICON.chevron + '</button>';
+      }).join('') + '</div>',
+      mount: function (m) {
+        m.classList.add('act-sheet');
+        if (plusBtn) { plusBtn.setAttribute('aria-expanded', 'true'); }
+        items.forEach(function (it) { var b = $('[data-act="' + it.id + '"]', m); if (b && !it.disabled) b.onclick = function () { closeModal(); it.run(); }; });
+        if (window.innerWidth <= 700) { var first = $('.act', m); if (first) first.focus({ preventScroll: true }); }
+      }
+    });
+    // reset the + icon when the sheet closes, however it closes
+    var root = $('#modalRoot'), obs = new MutationObserver(function () { if (root.hidden || !$('.act-sheet', root)) { if (plusBtn) plusBtn.setAttribute('aria-expanded', 'false'); obs.disconnect(); } });
+    obs.observe(root, { attributes: true, childList: true, subtree: false });
+  }
+
   /* ------------------------------------------------------------------ routing & render */
   function parseRoute() {
     var h = (location.hash || '#/clubhouse').replace(/^#\/?/, '').split('/');
@@ -1135,14 +1180,15 @@
     if (!season()) { app.innerHTML = '<div class="page container"><div class="card empty" style="margin:40px 0"><h4>No season found</h4><p>Run supabase-schema.sql in the Supabase SQL Editor to set up Season 01.</p></div></div>'; return; }
     destroyCharts();
     var r = state.route = parseRoute();
-    $$('[data-nav]').forEach(function (a) { var on = a.dataset.nav === r.page; a.classList.toggle('active', on); if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+    var navKey = r.page === 'fines' ? 'players' : r.page;
+    $$('[data-nav]').forEach(function (a) { var on = a.dataset.nav === navKey; a.classList.toggle('active', on); if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     if (r.page === 'clubhouse') renderClubhouse();
     else if (r.page === 'fixtures') renderFixtures();
     else if (r.page === 'players') { if (r.id) renderPlayer(r.id); else renderPlayers(); }
     else if (r.page === 'fines') renderFines();
     else if (r.page === 'tee-time') renderTeeTime();
     if (!scrollTop) { var pg = $('.page', app); if (pg) pg.style.animation = 'none'; }   // data refresh: no page-in animation
-    var titles = { clubhouse: 'The Clubhouse', fixtures: 'Fixtures', 'tee-time': 'Tee Time', players: r.id ? nm(r.id) : 'Players', fines: 'The Disciplinary Committee' };
+    var titles = { clubhouse: 'The Clubhouse', fixtures: 'Fixtures', 'tee-time': 'Tee Time', players: r.id ? nm(r.id) : 'Players', fines: 'Fines' };
     document.title = titles[r.page] + ' · Designated Drivers';
     if (scrollTop) window.scrollTo(0, 0);
   }
@@ -1173,6 +1219,7 @@
     if (t.closest('.modal') && !t.dataset.action) return;
     var a = t.dataset.action;
     if (a === 'submit-result') { e.preventDefault(); closeModal(); openSubmit(); }
+    else if (a === 'actions') { e.preventDefault(); openActions(); }
     else if (a === 'reset-demo') { confirmDialog('Reset demo data?', 'This restores the fictional demo season in this browser.', 'Reset').then(function (ok) { if (ok) state.store.reset().then(function (d) { state.data = d; state.prevSeries = null; pickDefaultSeason(true); render(); toast('Demo data reset.'); }); }); }
     else if (a === 'add-fine') openFine();
     else if (a === 'add-category') openCategory();
@@ -1201,7 +1248,17 @@
   document.addEventListener('change', function (e) {
     if (e.target.id === 'seasonSel') { state.seasonId = e.target.value; state.prevSeries = null; saveSeasonPref(); render(); }
   });
-  window.addEventListener('hashchange', function () { closeModal(); render(true); });
+  window.addEventListener('hashchange', function () {
+    closeModal(); render(true);
+    if (state.afterNav) { var then = state.afterNav; state.afterNav = null; then(); }
+  });
+  /** Go to a page, then run `then` once it has rendered (e.g. open a dialog there). */
+  function goThen(hash, then) {
+    closeModal();
+    if (location.hash === hash) { if (then) then(); return; }
+    state.afterNav = then || null;
+    location.hash = hash;
+  }
 
   /* ------------------------------------------------------------------ boot */
   async function boot() {

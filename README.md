@@ -19,13 +19,13 @@ It is plain HTML, CSS and JavaScript with no build step. Data lives in Supabase,
 └── tests/                scoring tests, browser tests, database tests
 ```
 
-## The five sections
+## The sections
 
 - **Clubhouse**: Championship Race chart, standings, latest round, key stats.
 - **Fixtures**: all 12 rounds. Tap a round to enter or correct its result, change its date and course, swap two unplayed pairings, or delete a result entered by mistake.
 - **Tee Time**: works out when the next round can be played. See below.
 - **Players**: profile cards, then a profile each with a player card (favourite quote, best shot, biggest strength, biggest weakness — anyone can fill it in), stats, points chart, partner chemistry, results history and fines.
-- **Fines**: the pot, who owes what, the full register and the tariff. Anyone can issue, correct, mark as paid or remove a fine.
+- **Players → Fines**: the Players tab has a Players / Fines switch at the top. Fines shows the pot, who owes what, the full register and the tariff. Anyone can issue, correct, mark as paid or remove a fine.
 
 The tariff is:
 
@@ -39,7 +39,13 @@ The tariff is:
 
 Running `supabase-schema.sql` sets the tariff to exactly these five. Older offences are retired rather than deleted, so fines already recorded keep their offence name and the amount charged at the time.
 
-**Submit Result** (top right, or the round button on a phone) is one screen: round, course, date, two gross team scores, submit. Points, standings, the chart and every profile update straight away.
+**The + button.** On a phone the bottom bar is Clubhouse · Fixtures · **+** · Tee Time · Players. The centre + opens three shortcuts into the existing flows:
+
+- **Record Round**: the results form. One screen: round, course, date, two gross team scores, submit. Points, standings, the chart and every profile update straight away.
+- **Add Fine**: the fine form (pick the offender and the offence).
+- **Schedule Fixture**: the next step on Tee Time for the next round, whatever it is: proposing the best 4/4 time, setting the tee time once all four have confirmed, changing a scheduled round, or filling in availability if no time works yet.
+
+On a computer the top navigation is Clubhouse · Fixtures · Tee Time · Players, and the **Submit Result** button opens the results form.
 
 ## Tee Time
 

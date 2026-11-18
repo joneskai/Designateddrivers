@@ -725,16 +725,12 @@
   function renderFines() {
     var c = ctx(), fs = c.finesSum;
     var maxTot = Math.max.apply(null, fs.rows.map(function (r) { return r.total; }).concat([1]));
-    var off = fs.topOffenders;
     var hist = c.fines.slice().sort(function (a, b) { return (b.createdAt || '').localeCompare(a.createdAt || ''); });
     var cats = state.data.fineCategories.slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
     app.innerHTML = '<div class="page container">' + hero('The Disciplinary Committee', 'Justice is swift, fair and payable in cash. Fines fund the end-of-season dinner and have no bearing on championship points.', '') +
       ('<div class="toolbar">' + playersSwitch('fines') + '<div class="btn-row"><button class="btn btn-cream" data-action="add-category">' + ICON.plus + 'New offence</button><button class="btn btn-gold" data-action="add-fine">' + ICON.gavel + 'Issue a fine</button></div></div>') +
-      '<div class="grid grid-4 fines-hero-stats">' +
-      '<div class="card stat" style="border:0">' + '<span class="stat-icon">' + ICON.coins + '</span><span class="stat-body"><span class="stat-label">Total fines pot</span><div class="stat-value">' + money(fs.total) + '</div><div class="stat-sub">' + plural(fs.count, 'offence') + '</div></span></div>' +
-      '<div class="card stat" style="border:0"><span class="stat-icon">' + ICON.check + '</span><span class="stat-body"><span class="stat-label">Paid</span><div class="stat-value">' + money(fs.paid) + '</div><div class="stat-sub">Settled with the treasurer</div></span></div>' +
-      '<div class="card stat" style="border:0"><span class="stat-icon">' + ICON.alert + '</span><span class="stat-body"><span class="stat-label">Outstanding</span><div class="stat-value">' + money(fs.outstanding) + '</div><div class="stat-sub">The Committee is watching</div></span></div>' +
-      '<div class="card stat" style="border:0"><span class="stat-icon">' + ICON.gavel + '</span><span class="stat-body"><span class="stat-label">Most fined</span><div class="stat-value' + (off.length > 1 ? ' sm' : '') + '">' + (off.length ? esc(listNames(off.map(function (r) { return nm(r.id); }))) : '—') + '</div><div class="stat-sub">' + (off.length ? money(off[0].total) + (off.length > 1 ? ' each' : '') : 'No offenders yet') + '</div></span></div></div>' +
+      '<div class="grid fines-hero-stats">' +
+      '<div class="card stat" style="border:0">' + '<span class="stat-icon">' + ICON.coins + '</span><span class="stat-body"><span class="stat-label">Total fines pot</span><div class="stat-value">' + money(fs.total) + '</div><div class="stat-sub">' + plural(fs.count, 'offence') + '</div></span></div></div>' +
       '<div class="grid grid-race"><section class="card"><h2>Offence Register</h2><p class="card-sub">Every charge laid before the Committee this season</p>' +
       (hist.length ? '<div class="table-wrap"><table class="data-table" style="margin-top:12px"><thead><tr><th>Offender</th><th>Offence</th><th class="hide-sm">Round</th><th class="num">Amount</th><th>Status</th>' + ('<th class="num"><span class="visually-hidden">Actions</span></th>') + '</tr></thead><tbody>' +
         hist.map(function (f) {

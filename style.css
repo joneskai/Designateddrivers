@@ -349,6 +349,8 @@ a.stat, button.stat { text-decoration: none; text-align: left; }
 
 /* ---------- Fines ---------- */
 .fines-hero-stats .stat-value { font-size: 30px; }
+.fines-hero-stats .stat { flex-direction: row !important; align-items: center; padding: 16px 20px; }
+.fines-hero-stats .stat:hover { transform: none; }
 .fine-row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .tariff { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 26px; }
 .tariff-item { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px dotted var(--line-2); font-size: 14.5px; align-items: center; }

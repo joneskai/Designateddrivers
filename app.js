@@ -983,9 +983,11 @@
       var mine = me ? t.o.avail[me][w] : undefined, answered = mine !== undefined;
       var isBest = bestKey.indexOf(w + ':') === 0;
       var head = '<div class="tw-head"><div class="tw-title"><span class="tw-k">Week ' + (wi + 1) + '</span><span class="tw-dates">' + T.weekendLabel(w) + '</span></div>' +
-        '<div class="tw-who" aria-label="Who has answered">' + t.players.map(function (id) {
+        '<div class="tw-who" aria-label="Who is free this weekend">' + t.players.map(function (id) {
           var a = id in t.o.avail && w in t.o.avail[id];
-          return '<span class="tw-av' + (a ? ' in' : '') + '" title="' + esc(nm(id)) + (a ? ' has answered' : ': no response yet') + '">' + avatar(id, 'xs') + '</span>';
+          // coloured only when at least one time is ticked; otherwise greyed (answered "can't" or no response yet)
+          var free = a && (t.o.avail[id][w] & T.FULL_MASK) !== 0;
+          return '<span class="tw-av' + (free ? ' in' : '') + '" title="' + esc(nm(id)) + (free ? ' is free at least once' : a ? ' can’t make this weekend' : ': no response yet') + '">' + avatar(id, 'xs') + '</span>';
         }).join('') + '</div>' +
         (me ? '<div class="tw-actions"><button class="btn-link" data-tee="week" data-w="' + w + '" data-v="all">Free all weekend</button><button class="btn-link" data-tee="week" data-w="' + w + '" data-v="none">Can’t make it</button></div>' : '') +
         (me && !answered ? '<span class="tw-note">Not answered yet</span>' : '') + '</div>';

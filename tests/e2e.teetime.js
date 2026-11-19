@@ -56,8 +56,17 @@ const SAT = 1, SUN = 2, EA = 0, LA = 1;
     // ---------- 3. Forrest picks his name and taps; the fourth tick makes it 4/4
     await pick('forrest');
     assert.match(await text('.tee-week'), /Not answered yet/);
+    const forrestAv = `.tee-week:first-child .tw-av:has(img[alt="Forrest"])`;
+    assert.ok(!(await page.$(forrestAv + '.in')), 'greyed before answering');
+    // tick then untick: no times selected -> his icon goes back to grey
+    await page.click(cell(W[0], SAT, LA)); await saved();
+    assert.ok(await page.$(forrestAv + '.in'), 'coloured with a time ticked');
+    await page.click(cell(W[0], SAT, LA)); await saved();
+    assert.ok(!(await page.$(forrestAv + '.in')), 'grey again once nothing is ticked');
+    assert.strictEqual(await page.getAttribute(forrestAv, 'title'), 'Forrest can’t make this weekend');
     await page.click(cell(W[0], SAT, EA));
     await saved();
+    assert.ok(await page.$(forrestAv + '.in'));
     assert.match(await text('.tn-box.best'), /Best next time/);
     assert.match(await text('.tn-box.best'), new RegExp(T.shortDate(T.addDays(W[0], 1)) + ' · Early AM'));
     assert.match(await text('.tn-box.best'), /4\/4 available/);

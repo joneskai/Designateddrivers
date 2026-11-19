@@ -972,7 +972,7 @@
     return 'Waiting on ' + esc(listNames(part)) + ' to finish filling in availability.';
   }
   function saveBadge() {
-    if (tee.error) return '<button class="tee-save err" data-tee="retry">' + ICON.alert + 'Not saved — retry</button>';
+    if (tee.error) return '<button class="tee-save err" data-tee="retry">' + ICON.alert + (tee.retries <= RETRY_SECONDS.length ? 'Not saved yet — retrying (tap to retry now)' : 'Not saved — tap to retry') + '</button>';
     if (tee.inflight || Object.keys(tee.pending).length) return '<span class="tee-save busy"><span class="spinner dark"></span>Saving…</span>';
     if (tee.savedAt) return '<span class="tee-save ok">' + ICON.check + 'Saved</span>';
     return '<span class="tee-save"></span>';
@@ -1049,10 +1049,50 @@
     var byP = tee.pending[me] = tee.pending[me] || {};
     var p = byP[w] || { s: 0, c: 0 };
     p.s = (p.s | set) & ~clear; p.c = (p.c | clear) & ~set;
-    byP[w] = p; tee.error = '';
+    byP[w] = p; tee.error = ''; tee.retries = 0;
+    persistPending();
     render();
     clearTimeout(tee.timer); tee.timer = setTimeout(flushAvail, 450);
   }
+  /* Unsaved taps are also kept on the device, so closing the page or losing
+     signal never throws them away: they're sent next time the page opens. */
+  var PENDING_KEY = 'dd-tee-pending-' + MODE;
+  function layered() {
+    var out = {};
+    [tee.inflight, tee.pending].forEach(function (layer) {
+      if (!layer) return;
+      Object.keys(layer).forEach(function (pid) {
+        Object.keys(layer[pid]).forEach(function (w) {
+          var nw = layer[pid][w], old = (out[pid] || {})[w];
+          out[pid] = out[pid] || {};
+          out[pid][w] = old ? { s: (old.s & ~nw.c) | nw.s, c: (old.c & ~nw.s) | nw.c } : { s: nw.s, c: nw.c };
+        });
+      });
+    });
+    return out;
+  }
+  function persistPending() {
+    try {
+      var all = layered();
+      if (Object.keys(all).length) localStorage.setItem(PENDING_KEY, JSON.stringify(all)); else localStorage.removeItem(PENDING_KEY);
+    } catch (e) { /* storage unavailable: memory only */ }
+  }
+  function teeRestore() {
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null'); } catch (e) {}
+    if (!saved || typeof saved !== 'object') return;
+    Object.keys(saved).forEach(function (pid) {
+      if (!state.data.players.some(function (p) { return p.id === pid; })) return;
+      Object.keys(saved[pid] || {}).forEach(function (w) {
+        var ch = saved[pid][w];
+        if (!T.isFriday(w) || !ch) return;
+        tee.pending[pid] = tee.pending[pid] || {};
+        tee.pending[pid][w] = { s: (ch.s | 0) & T.FULL_MASK, c: (ch.c | 0) & T.FULL_MASK };
+      });
+    });
+    if (teeBusy()) flushAvail();
+  }
+  var RETRY_SECONDS = [2, 5, 10, 20, 30, 30, 60, 60];
   async function flushAvail() {
     clearTimeout(tee.timer);
     if (tee.inflight || !Object.keys(tee.pending).length) return;
@@ -1069,7 +1109,7 @@
           changes.slice(i, i + 30).forEach(function (ch) { delete batch[pid][ch.w]; });   // saved — no longer in flight
         }
       }
-      tee.savedAt = Date.now(); tee.error = ''; writeSeq++;
+      tee.savedAt = Date.now(); tee.error = ''; tee.retries = 0; writeSeq++;
     } catch (e) {
       // keep everything that didn't save, with any newer taps taking precedence
       Object.keys(batch).forEach(function (pid) {
@@ -1080,16 +1120,21 @@
         });
       });
       tee.error = e.message || 'Could not save';
-      toast('Availability not saved: ' + tee.error, 'error');
+      tee.retries = (tee.retries || 0) + 1;
+      if (tee.retries === 1) toast('Availability not saved yet (' + tee.error + '). Retrying automatically — your taps are kept.', 'error');
+      clearTimeout(tee.timer);
+      if (tee.retries <= RETRY_SECONDS.length) tee.timer = setTimeout(flushAvail, RETRY_SECONDS[tee.retries - 1] * 1000);
     }
     tee.inflight = null;
+    persistPending();
     if (Object.keys(tee.pending).length && !tee.error) return flushAvail();
     if (state.route && state.route.page === 'tee-time') render();
   }
   function teeBusy() { return !!(tee.inflight || Object.keys(tee.pending).length); }
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden' && teeBusy()) flushAvail(); });
+  window.addEventListener('online', function () { if (teeBusy() && !tee.inflight) { tee.retries = 0; flushAvail(); } });
   window.addEventListener('pagehide', function () { if (teeBusy()) flushAvail(); });
-  window.addEventListener('beforeunload', function (e) { if (teeBusy()) { flushAvail(); e.preventDefault(); e.returnValue = ''; } });
+  window.addEventListener('beforeunload', function () { if (teeBusy()) flushAvail(); });   // unsaved taps are kept on the device anyway
 
   function toastUndo(msg, undo) {
     var el = document.createElement('div');
@@ -1167,7 +1212,7 @@
         if (tee.player !== pid) return;
         queueAvail(wk, before, T.FULL_MASK & ~before);
       });
-    } else if (a === 'retry') { tee.error = ''; flushAvail(); render(); }
+    } else if (a === 'retry') { tee.error = ''; tee.retries = 0; flushAvail(); render(); }
     else if (a === 'extend') {
       var t = teeCtx(); if (!t.fixture) return;
       teeAct(state.store.extendWindow(t.fixture.id), 'Two more weekends added.', b);
@@ -1182,12 +1227,16 @@
     } else if (a === 'schedule') openSchedule(b.dataset.id);
     else if (a === 'record') openSubmit(b.dataset.id);
   });
-  // Keep the page current while people are filling it in on other phones.
+  // Keep every page current with changes made on the other phones:
+  // Tee Time checks every 15 seconds, other pages every 45.
+  var lastCheck = Date.now();
   setInterval(function () {
-    if (MODE !== 'live' || !state.route || state.route.page !== 'tee-time' || document.visibilityState !== 'visible') return;
+    if (MODE !== 'live' || !state.route || document.visibilityState !== 'visible') return;
     if (teeBusy() || !$('#modalRoot').hidden) return;
-    refresh();
-  }, 15000);
+    if (Date.now() - lastCheck < (state.route.page === 'tee-time' ? 15000 : 45000) - 500) return;
+    lastCheck = Date.now();
+    refresh(null, true);
+  }, 5000);
 
   /* ------------------------------------------------------------------ QUICK ACTIONS (centre + button) */
   // Three shortcuts into the existing flows — nothing here records anything itself.
@@ -1261,15 +1310,24 @@
     if (scrollTop) window.scrollTo(0, 0);
   }
 
-  async function refresh(goTo) {
+  /**
+   * Reload shared data. `quiet` (background checks): redraw only if something
+   * changed, never while a dialog is open or taps are still saving, and don't
+   * nag with an error if the phone is briefly offline.
+   */
+  async function refresh(goTo, quiet) {
     try {
       var seq = writeSeq, data = await state.store.load();
       if (seq !== writeSeq) data = await state.store.load();   // something saved while loading: load again
+      if (quiet) {
+        if (JSON.stringify(data) === JSON.stringify(state.data)) return;
+        if (!$('#modalRoot').hidden || teeBusy()) return;   // try again on the next check rather than redraw under someone
+      }
       state.data = data;
       pickDefaultSeason(false);
       if (goTo && location.hash !== goTo) { location.hash = goTo; return; } // hashchange renders once
       render();
-    } catch (e) { toast('Could not load the latest data: ' + e.message, 'error'); }
+    } catch (e) { if (!quiet) toast('Could not load the latest data: ' + e.message, 'error'); }
   }
   function saveSeasonPref() { try { localStorage.setItem('dd-season-' + MODE, state.seasonId); } catch (e) {} }
   function pickDefaultSeason(force) {
@@ -1321,6 +1379,7 @@
   window.addEventListener('hashchange', function () {
     closeModal(); render(true);
     if (state.afterNav) { var then = state.afterNav; state.afterNav = null; then(); }
+    else if (MODE === 'live') { lastCheck = Date.now(); refresh(null, true); }   // show the page straight away, then pick up anyone else's changes
   });
   /** Go to a page, then run `then` once it has rendered (e.g. open a dialog there). */
   function goThen(hash, then) {
@@ -1348,9 +1407,10 @@
       pickDefaultSeason(false);
       renderFooter();
       render(true);
+      teeRestore();
       if (MODE === 'live') {
-        var t; state.store.onChange(function () { clearTimeout(t); t = setTimeout(refresh, 400); });
-        document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') refresh(); });
+        var t; state.store.onChange(function () { clearTimeout(t); t = setTimeout(function () { refresh(null, true); }, 400); });
+        document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') { lastCheck = Date.now(); refresh(null, true); } });
       }
     } catch (e) {
       app.innerHTML = '<div class="container"><div class="card empty" style="margin:40px 0"><div class="empty-icon">' + ICON.alert + '</div><h4>The clubhouse is closed</h4><p>' + esc(e.message) + '</p><p class="small">Check config.js and that supabase-schema.sql has been run. Preview with <a href="?demo">demo mode</a>.</p><button class="btn btn-primary" onclick="location.reload()">Try again</button></div></div>';

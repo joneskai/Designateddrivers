@@ -59,7 +59,7 @@ Open Tee Time → tap your name → tap the times you can play → the best date
 - **Propose → confirm → schedule:** "Propose round" (or tap any overlap) suggests a date and window, and the proposer is marked as in. Each player taps "I'm in" or "Can't make it". Once all four are in, enter the tee-off time and course; that writes the date, time and course onto the fixture itself, so Fixtures and the Clubhouse show it. It records the plan only. Booking the course is still up to you.
 - **After the round:** enter the result as usual. Tee Time moves to the next round and opens its calendar three weeks after the date played. Correcting or deleting a result recalculates it automatically.
 
-Your name choice is remembered on each phone. Every tap shows instantly and saves within half a second ("Saving…" / "Saved"; if a save fails it says so and keeps your taps for a retry). The page checks for other people's changes every 15 seconds while open. If two phones change availability at the same moment, the database merges them cell by cell, so nobody's taps are lost.
+Your name choice is remembered on each phone. Every tap shows instantly and saves within half a second ("Saving…" / "Saved"). If the signal drops, taps stay on screen, are kept on the phone (even if the page is closed) and are sent automatically when the connection is back. Open pages check for other people's changes every 15 seconds on Tee Time and every 45 seconds elsewhere, and moving between pages always fetches the latest. If two phones change availability at the same moment, the database merges them cell by cell, so nobody's taps are lost.
 
 ## Updating the database (do this once after pulling this version)
 
@@ -184,6 +184,11 @@ The whole Tee Time flow at desktop and iPhone widths: picking a name, ticking, b
 node tests/e2e.review.js http://localhost:8765
 ```
 Edge cases from the full-site review: score validation and a triple-tapped save, draws, correcting and deleting results, a date set on Fixtures locking a round in, a locked-in date that has passed, a proposal whose date has passed, switching name mid-save, retiring and restoring an offence, swapping pairings, the end of a season, and resetting demo data.
+
+```bash
+node tests/e2e.multidevice.js
+```
+Four phones against a real local PostgreSQL loaded with `supabase-schema.sql` (needs `psql`; set `DD_PG_HOST`, `DD_PG_PORT`, `DD_PG_USER`). A small stand-in for Supabase's REST API runs every request as the anonymous visitor, so security rules, the guarded functions and simultaneous transactions are all real. It covers four people tapping at once, one person on two devices, a phone losing signal or closing the page, two people pressing Propose together, everyone confirming at once, setting the tee time, and recording the result.
 
 `e2e.demo.js` runs the whole site at desktop and iPhone widths with no login: submit, correct and delete a result; issue, correct, pay and delete a fine; duplicate and bot protection; profiles. `e2e.live-mock.js` runs the Supabase path against a mocked client: every write is a function call, the club code flow, and the message shown before the database is updated.
 

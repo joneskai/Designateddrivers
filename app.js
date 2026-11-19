@@ -27,6 +27,7 @@
   function todayIso() { var d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
   function pct(v) { return v == null ? '—' : Math.round(v) + '%'; }
   function num1(v) { return v == null ? '—' : (Math.round(v * 10) / 10).toFixed(1).replace(/\.0$/, ''); }
+  function pts(n) { return n + (n === 1 ? ' pt' : ' pts'); }
   function plural(n, s, p) { return n + ' ' + (n === 1 ? s : (p || s + 's')); }
   function listNames(names) { return names.length <= 1 ? (names[0] || '') : names.slice(0, -1).join(', ') + ' & ' + names[names.length - 1]; }
 
@@ -197,7 +198,7 @@
     return '<section class="card race-card" aria-labelledby="raceTitle"><div class="card-head"><div><h2 id="raceTitle">Championship Race</h2><p class="card-sub">Cumulative points across ' + esc(seasonLabel(c.season)) + '</p></div></div>' +
       '<div class="race-wrap" id="raceWrap"><canvas id="raceCanvas" role="img" aria-label="Line chart of cumulative championship points by round"></canvas><div class="race-markers" id="raceMarkers"></div>' +
       (c.done.length ? '' : '<div class="race-empty-note">The race begins once Round 01 is recorded.</div>') + '</div>' +
-      '<p class="visually-hidden">' + c.table.map(function (r) { return nm(r.id) + ' ' + r.points + ' points'; }).join(', ') + '</p></section>';
+      '<p class="visually-hidden">' + c.table.map(function (r) { return nm(r.id) + ' ' + plural(r.points, 'point'); }).join(', ') + '</p></section>';
   }
 
   function standingsCard(c) {
@@ -205,7 +206,7 @@
       var mv = c.movement[r.id] || 0;
       var mvHtml = mv > 0 ? '<span class="move up" title="Up ' + mv + '">' + ICON.up + mv + '</span>' : mv < 0 ? '<span class="move down" title="Down ' + (-mv) + '">' + ICON.down + (-mv) + '</span>' : '<span class="move same" aria-label="No change">–</span>';
       var leader = r.rank === 1 && r.points > 0;
-      return '<tr class="' + (leader ? 'leader' : '') + '" data-href="#/players/' + r.id + '" tabindex="0" aria-label="' + esc(nm(r.id)) + ', ' + r.points + ' points — open profile">' +
+      return '<tr class="' + (leader ? 'leader' : '') + '" data-href="#/players/' + r.id + '" tabindex="0" aria-label="' + esc(nm(r.id)) + ', ' + plural(r.points, 'point') + ' — open profile">' +
         '<td class="rank-cell"><span class="rank-num">' + r.rank + (r.shared ? '=' : '') + '</span>' + mvHtml + '</td>' +
         '<td><div class="player-cell">' + avatar(r.id, 'ring-light', '--size:40px') + '<span class="name">' + esc(nm(r.id)) + '</span></div></td>' +
         '<td>' + r.played + '</td><td>' + r.wins + '</td><td>' + r.draws + '</td><td>' + r.losses + '</td>' +
@@ -245,7 +246,7 @@
     var fs = c.finesSum;
     var off = fs.topOffenders;
     var leaderVal = leaders.length ? esc(listNames(leaders.map(function (r) { return nm(r.id); }))) : '—';
-    var leaderSub = leaders.length ? leaders[0].points + ' pts' + (leaders.length > 1 ? ' · shared' : '') : 'No rounds yet';
+    var leaderSub = leaders.length ? pts(leaders[0].points) + (leaders.length > 1 ? ' · shared' : '') : 'No rounds yet';
     var winVal = wins.length ? esc(listNames(wins.map(function (r) { return nm(r.id); }))) : '—';
     var winSub = wins.length ? plural(wins[0].wins, 'win') + (wins.length > 1 ? ' · shared' : '') : 'No wins yet';
     var offVal = off.length ? esc(listNames(off.map(function (r) { return nm(r.id); }))) : '—';
@@ -305,7 +306,7 @@
             itemSort: function (a, b) { return b.parsed.y - a.parsed.y; },
             callbacks: {
               title: function (items) { var r = items[0].dataIndex; if (r === 0) return 'Season start'; var f = c.fixtures.filter(function (x) { return x.round === r; })[0]; return 'After Round ' + pad2(r) + (f && E.isCompleted(f) ? '' : ' (not yet played)'); },
-              label: function (it) { return ' ' + it.dataset.label + ': ' + it.parsed.y + ' pts'; }
+              label: function (it) { return ' ' + it.dataset.label + ': ' + pts(it.parsed.y); }
             }
           }
         }
@@ -448,7 +449,7 @@
     function team(t, side) {
       var won = o && o.winner === side;
       return '<div class="team">' + pair(t, 'lg') + '<span class="team-name">' + esc(teamName(t)) + '</span>' +
-        (o ? '<span class="pts ' + (o.points[t[0]] ? 'plus' : '') + '">+' + o.points[t[0]] + ' pts each</span>' : '') + (won ? '<span class="badge done">Winners</span>' : '') + '</div>';
+        (o ? '<span class="pts ' + (o.points[t[0]] ? 'plus' : '') + '">+' + pts(o.points[t[0]]) + ' each</span>' : '') + (won ? '<span class="badge done">Winners</span>' : '') + '</div>';
     }
     var body = '<div class="fixture-detail-teams">' + team(f.teamA, 'A') + (done ? '<div class="score-pill">' + f.scoreA + ' – ' + f.scoreB + '</div>' : '<div class="score-pill" style="background:transparent;color:var(--muted);border:1.5px dashed var(--line-2)">vs</div>') + team(f.teamB, 'B') + '</div>' +
       (done ? (o.winner === 'DRAW' ? '<div class="win-banner draw"><span class="trophy">' + ICON.balance + '</span><div><div class="t1">All square</div><div class="t2">Both teams on ' + f.scoreA + ' gross · +1 pt each</div></div></div>' : '<div class="win-banner"><span class="trophy">' + ICON.trophy + '</span><div><div class="t1">' + esc(teamName(o.winners)) + ' win</div><div class="t2">By ' + plural(o.margin, 'stroke') + ' · +2 pts each</div></div></div>') : '<div class="callout info">This round has not been played yet.</div>') +
@@ -619,7 +620,7 @@
       var p = P(r.id);
       return '<a class="card player-card" href="#/players/' + r.id + '" style="--pc:' + p.color + '">' + avatar(r.id) +
         '<span class="pos">' + (r.played ? ordinal(r.rank) + (r.shared ? ' (shared)' : '') : 'Yet to tee off') + '</span><span class="nm">' + esc(p.name) + '</span>' +
-        '<span class="pts"><strong>' + r.points + '</strong> pts</span>' +
+        '<span class="pts"><strong>' + r.points + '</strong> ' + (r.points === 1 ? 'pt' : 'pts') + '</span>' +
         '<span class="rec"><span class="rec-pill">' + r.wins + 'W</span><span class="rec-pill">' + r.draws + 'D</span><span class="rec-pill">' + r.losses + 'L</span></span>' +
         '<span style="margin-top:10px">' + formHtml(r.form) + '</span>' + (p.quote ? '<span class="pc-quote">“' + esc(p.quote) + '”</span>' : '') + '</a>';
     }).join('');
@@ -644,7 +645,7 @@
     var html = '<div class="page container">' +
       '<a class="back-link" href="#/players">' + ICON.back + 'All players</a>' +
       '<section class="profile-hero" style="--pc:' + p.color + '">' + avatar(id, 'xl') + '<div><div class="eyebrow">' + esc(seasonLabel(c.season)) + ' · ' + (r.played ? ordinal(r.rank) + (r.shared ? ' (shared)' : '') + ' in the championship' : 'Yet to tee off') + '</div><h1>' + esc(p.name) + '</h1>' +
-'<div class="hero-tags"><span class="tag">' + r.points + ' pts</span><span class="tag">' + r.wins + 'W · ' + r.draws + 'D · ' + r.losses + 'L</span><span class="tag">Stroke diff ' + (r.diff > 0 ? '+' : '') + r.diff + '</span></div></div></section>' +
+'<div class="hero-tags"><span class="tag">' + pts(r.points) + '</span><span class="tag">' + r.wins + 'W · ' + r.draws + 'D · ' + r.losses + 'L</span><span class="tag">Stroke diff ' + (r.diff > 0 ? '+' : '') + r.diff + '</span></div></div></section>' +
       playerCard(p) +
       '<div class="card" style="margin-bottom:18px"><div class="kpis">' +
       kpi('Position', r.played ? ordinal(r.rank) : '—', r.played && r.shared ? 'Shared' : 'of 4') + kpi('Points', r.points, 'Max ' + (2 * (c.season.totalRounds || 12))) + kpi('Played', r.played, (c.season.totalRounds || 12) - r.played + ' to play') + kpi('Win rate', pct(r.winPct), r.wins + 'W ' + r.draws + 'D ' + r.losses + 'L') +
@@ -653,7 +654,7 @@
       '<div class="grid grid-2"><section class="card chart-card"><h2>Points Progression</h2><p class="card-sub">Cumulative points by round, against the field</p><div class="mini-chart"><canvas id="pChart" role="img" aria-label="' + esc(p.name) + ' cumulative points"></canvas></div></section>' +
       '<section class="card"><h2>Partner Chemistry</h2><p class="card-sub">Team results with each playing partner</p><div class="chem" style="margin-top:14px;grid-template-columns:minmax(0,1fr)">' + chem.map(function (x) {
         var tot = x.played || 1;
-        return '<div class="chem-card"><div class="chem-head">' + pair([id, x.partner], 'sm') + '<div><div class="nm">with ' + esc(nm(x.partner)) + '</div><div class="sub">' + plural(x.played, 'round') + ' together · ' + x.points + ' pts</div></div><div style="margin-left:auto;font-family:var(--serif);font-size:22px;font-weight:600">' + pct(x.winPct) + '</div></div>' +
+        return '<div class="chem-card"><div class="chem-head">' + pair([id, x.partner], 'sm') + '<div><div class="nm">with ' + esc(nm(x.partner)) + '</div><div class="sub">' + plural(x.played, 'round') + ' together · ' + pts(x.points) + '</div></div><div style="margin-left:auto;font-family:var(--serif);font-size:22px;font-weight:600">' + pct(x.winPct) + '</div></div>' +
           '<div class="chem-bar" aria-hidden="true"><i style="width:' + (x.wins / tot * 100) + '%;background:var(--green-800)"></i><i style="width:' + (x.draws / tot * 100) + '%;background:#D8C78F"></i><i style="width:' + (x.losses / tot * 100) + '%;background:#E3A497"></i></div>' +
           '<div class="chem-stats"><div><b>' + x.wins + '-' + x.draws + '-' + x.losses + '</b>W-D-L</div><div><b>' + num1(x.avgGross) + '</b>Avg gross</div><div><b>' + pct(x.winPct) + '</b>Win %</div></div></div>';
       }).join('') + '</div></section></div>' +
@@ -716,7 +717,7 @@
       options: {
         responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
         scales: { x: { grid: { display: false }, ticks: { font: { family: 'Inter', size: 11 }, maxRotation: 0 } }, y: { min: 0, max: 24, ticks: { stepSize: 4, font: { family: 'Inter', size: 11 } }, grid: { color: 'rgba(60,60,50,.1)' } } },
-        plugins: { legend: { display: false }, tooltip: { backgroundColor: '#062E20', itemSort: function (a, b) { return b.parsed.y - a.parsed.y; }, callbacks: { label: function (it) { return ' ' + it.dataset.label + ': ' + it.parsed.y + ' pts'; } } } }
+        plugins: { legend: { display: false }, tooltip: { backgroundColor: '#062E20', itemSort: function (a, b) { return b.parsed.y - a.parsed.y; }, callbacks: { label: function (it) { return ' ' + it.dataset.label + ': ' + pts(it.parsed.y); } } } }
       }
     });
     state.charts.push(ch);

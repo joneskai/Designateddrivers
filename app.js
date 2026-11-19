@@ -456,8 +456,8 @@
       (!done && (c_isNext(f) || (teeCtx().fixture || {}).id === f.id) ? '<li><span>Tee Time</span><span><a href="#/tee-time">' + (liveProposal(f.id) ? (liveProposal(f.id).status === 'scheduled' ? 'Scheduled' : 'Proposed') + ' — view' : 'Find a date') + ' →</a></span></li>' : '') + '<li><span>Course</span><span>' + esc(f.course || 'TBC') + '</span></li><li><span>Format</span><span>2-person Ambrose · gross</span></li>' +
       (f.notes ? '<li><span>Notes</span><span>' + esc(f.notes) + '</span></li>' : '') + '</ul>' +
       (fines.length ? '<div class="section-label">Fines this round</div><ul class="confirm-list">' + fines.map(function (x) { return '<li><span>' + esc(nm(x.playerId)) + ' — ' + esc(x.categoryName) + '</span><span>' + money(x.amount) + '</span></li>'; }).join('') + '</ul>' : '');
-    var foot = (done ? '<button class="btn btn-danger btn-sm spacer" id="fxDel">' + ICON.trash + 'Delete result</button>' : '<button class="btn btn-ghost btn-sm spacer" id="fxSwap">' + ICON.swap + 'Swap pairing</button>') +
-      '<button class="btn btn-ghost" id="fxEdit">' + ICON.calendar + 'Date & course</button><button class="btn btn-primary" id="fxRes">' + (done ? ICON.edit + 'Edit result' : ICON.plus + 'Enter result') + '</button>';
+    var foot = (done ? '<button class="btn btn-danger btn-sm spacer" id="fxDel">' + ICON.trash + 'Delete result</button>' : '<button class="btn btn-ghost btn-sm spacer" id="fxSwap">' + ICON.swap + 'Swap pairing</button>' +
+      '<button class="btn btn-ghost" id="fxEdit">' + ICON.calendar + 'Date & course</button>') + '<button class="btn btn-primary" id="fxRes">' + (done ? ICON.edit + 'Edit result' : ICON.plus + 'Enter result') + '</button>';
     openModal({
       title: 'Round ' + pad2(f.round), sub: esc(seasonLabel(season())) + ' · ' + (done ? 'Completed' : 'Scheduled'), body: body, foot: foot,
       mount: function (m) {
@@ -466,7 +466,7 @@
         if ((b = $('#fxEdit', m))) b.onclick = function () { openFixtureEdit(f.id); };
         if ((b = $('#fxSwap', m))) b.onclick = function () { openSwap(f.id); };
         if ((b = $('#fxDel', m))) b.onclick = async function () {
-          var ok = await confirmDialog('Delete Round ' + pad2(f.round) + ' result?', 'The score will be removed and every standing, chart and record will be recalculated. Fines are kept.', 'Delete result', true);
+          var ok = await confirmDialog('Delete Round ' + pad2(f.round) + ' result?', 'The score is removed and the standings and Championship Race are recalculated. Fines from that round are kept.', 'Delete result', true);
           if (!ok) return;
           try { await state.store.deleteResult(f.id); toast('Round ' + pad2(f.round) + ' result deleted. Standings recalculated.'); await refresh(); } catch (e) { toast(e.message, 'error'); }
         };
@@ -476,8 +476,8 @@
 
   function openFixtureEdit(id) {
     edit(function () {
-      var f = fixtureById(id), lp = liveProposal(f.id);
-      if (lp && lp.status === 'scheduled' && !E.isCompleted(f)) { closeModal(); location.hash = '#/tee-time'; toast('Round ' + pad2(f.round) + ' was set on Tee Time — change its date there.'); return; }
+      var f = fixtureById(id), L = lockOf(f);
+      if (L && L.proposal) { goThen('#/tee-time'); toast('Round ' + pad2(f.round) + '’s date was agreed on Tee Time — change or cancel it there.'); return; }
       openModal({
         title: 'Round ' + pad2(f.round) + ' — date & course', sub: 'Pairings stay locked to keep the season balanced.',
         body: '<div class="row-2"><div class="field"><label for="feDate">Date</label><input class="input" type="date" id="feDate" value="' + esc(f.date || '') + '"></div>' +
@@ -647,7 +647,7 @@
 '<div class="hero-tags"><span class="tag">' + r.points + ' pts</span><span class="tag">' + r.wins + 'W · ' + r.draws + 'D · ' + r.losses + 'L</span><span class="tag">Stroke diff ' + (r.diff > 0 ? '+' : '') + r.diff + '</span></div></div></section>' +
       playerCard(p) +
       '<div class="card" style="margin-bottom:18px"><div class="kpis">' +
-      kpi('Position', r.played ? ordinal(r.rank) : '—', r.shared ? 'Shared' : 'of 4') + kpi('Points', r.points, 'Max ' + (2 * (c.season.totalRounds || 12))) + kpi('Played', r.played, (c.season.totalRounds || 12) - r.played + ' to play') + kpi('Win rate', pct(r.winPct), r.wins + 'W ' + r.draws + 'D ' + r.losses + 'L') +
+      kpi('Position', r.played ? ordinal(r.rank) : '—', r.played && r.shared ? 'Shared' : 'of 4') + kpi('Points', r.points, 'Max ' + (2 * (c.season.totalRounds || 12))) + kpi('Played', r.played, (c.season.totalRounds || 12) - r.played + ' to play') + kpi('Win rate', pct(r.winPct), r.wins + 'W ' + r.draws + 'D ' + r.losses + 'L') +
       kpi('Avg team gross', num1(r.avgGross), 'Ambrose, per round') + kpi('Best team gross', r.best == null ? '—' : r.best, 'Lowest') + kpi('Worst team gross', r.worst == null ? '—' : r.worst, 'Highest') + '<div class="kpi"><div class="k">Current form</div><div style="margin-top:8px">' + formHtml(r.form) + '</div></div>' +
       '</div></div>' +
       '<div class="grid grid-2"><section class="card chart-card"><h2>Points Progression</h2><p class="card-sub">Cumulative points by round, against the field</p><div class="mini-chart"><canvas id="pChart" role="img" aria-label="' + esc(p.name) + ' cumulative points"></canvas></div></section>' +
@@ -678,7 +678,7 @@
     return '<section class="card bio-card" aria-labelledby="bioT"><div class="card-head"><h2 id="bioT">Player Card</h2><button class="btn btn-ghost btn-sm" data-edit-bio="' + p.id + '">' + ICON.edit + (any ? 'Edit' : 'Fill it in') + '</button></div>' +
       '<div class="bio-grid">' + BIO_FIELDS.map(function (f) {
         var v = p[f[0]];
-        return '<div class="bio-item' + (f[0] === 'quote' ? ' quote' : '') + '"><span class="k">' + f[1] + '</span><span class="v' + (v ? '' : ' empty') + '">' + (v ? (f[0] === 'quote' ? '“' + esc(v) + '”' : esc(v)) : 'Not added yet') + '</span></div>';
+        return '<div class="bio-item' + (f[0] === 'quote' ? ' quote' : '') + '"><span class="k">' + f[1] + '</span><span class="v' + (v ? '' : ' unset') + '">' + (v ? (f[0] === 'quote' ? '“' + esc(v) + '”' : esc(v)) : 'Not added yet') + '</span></div>';
       }).join('') + '</div></section>';
   }
   function openBio(id) {
@@ -810,10 +810,11 @@
             var name = $('#ctN', m).value.trim(), amt = $('#ctA', m).value;
             if (!name) { $('#ctErr', m).textContent = 'Name the offence.'; return; }
             if (amt === '' || !(Number(amt) >= 0)) { $('#ctErr', m).textContent = 'Enter a valid amount.'; return; }
-            var dupe = state.data.fineCategories.some(function (x) { return x.name.toLowerCase() === name.toLowerCase() && (!c || x.id !== c.id); });
-            if (dupe) { $('#ctErr', m).textContent = 'That offence already exists.'; return; }
+            var dupe = state.data.fineCategories.filter(function (x) { return x.name.toLowerCase() === name.toLowerCase() && (!c || x.id !== c.id); })[0];
+            if (dupe && (dupe.active || c)) { $('#ctErr', m).textContent = 'That offence already exists.'; return; }
+            var target = c || dupe;                                   // a retired offence of the same name is brought back
             var b = this; busy(b, true);
-            try { await state.store.saveCategory({ id: c && c.id, name: name, amount: Number(amt), active: c ? $('#ctActive', m).checked : true }); closeModal(); toast('Tariff updated.'); await refresh(); }
+            try { await state.store.saveCategory({ id: target && target.id, name: target ? target.name : name, amount: Number(amt), active: c ? $('#ctActive', m).checked : true }); closeModal(); toast(dupe && !c ? '“' + dupe.name + '” is back on the tariff.' : 'Tariff updated.'); await refresh(); }
             catch (e) { busy(b, false); toast(e.message, 'error'); }
           };
         }
@@ -826,6 +827,7 @@
   // the last round (rules in teetime.js) and feeds straight into the fixture.
   var TEE_PLAYER_KEY = 'dd-tee-player';
   var tee = { player: null, pending: {}, inflight: null, timer: null, error: '', savedAt: 0 };
+  var writeSeq = 0;
   try { tee.player = localStorage.getItem(TEE_PLAYER_KEY) || null; } catch (e) {}
   function teeTz() { return cfg.timezone || T.TZ; }
   function time12(t) { if (!t) return ''; var h = +t.slice(0, 2), m = t.slice(3, 5); return ((h + 11) % 12 + 1) + ':' + m + ' ' + (h < 12 ? 'AM' : 'PM'); }
@@ -879,7 +881,7 @@
     locked.forEach(function (L) { if (!anchor || L.date > anchor.date) anchor = { date: L.date, round: L.fixture.round, kind: L.kind }; });
     var win = T.windowFor({ lastPlayed: anchor ? anchor.date : null, today: today, weeks: f.teeWeeks });
     var players = fixturePlayers(f);
-    var o = { players: players, weekends: win.weekends, avail: availMap(), today: today, preferred: cfg.teePreferredWindows || [] };
+    var o = { players: players, weekends: win.weekends, avail: availMap(), today: today, now: T.nowTime(teeTz()), preferred: cfg.teePreferredWindows || [] };
     return { c: c, fixture: f, locked: locked, last: anchor, today: today, win: win, o: o, players: players, best: T.best(o), overlaps: T.overlaps(o).slice(0, 3), blocker: T.blocker(o), proposal: liveProposal(f.id) };
   }
   var LOCK_WORD = { played: '', scheduled: 'scheduled', agreed: 'date agreed', dated: 'date set' };
@@ -897,6 +899,10 @@
       } else {
         k = 'Date set on Fixtures'; when = T.shortDate(f.date) + (f.teeTime ? ' · ' + time12(f.teeTime) : ''); sub = esc(f.course || 'Course TBC');
         acts = '<button class="btn btn-ghost btn-sm" data-fixture="' + f.id + '">' + ICON.edit + 'Edit</button>';
+      }
+      if (L.date < t.today) {   // the day has been and gone: most likely played, so ask for the result
+        sub = 'That date has passed. Played it? Record the result and Tee Time moves on to the next round.';
+        acts = '<button class="btn btn-primary btn-sm" data-tee="record" data-id="' + f.id + '">' + ICON.flag + 'Record result</button>' + acts.replace('btn btn-primary btn-sm', 'btn btn-ghost btn-sm');
       }
       return '<section class="card tee-next tee-locked" aria-label="Round ' + f.round + ' locked in"><div class="tn-top"><span class="tn-round">Round ' + pad2(f.round) + '</span>' +
         '<span class="tn-pair">' + esc(teamName(f.teamA)) + ' <i>v</i> ' + esc(teamName(f.teamB)) + '</span></div>' +
@@ -935,7 +941,7 @@
           var r = p.responses[id], cls = r === 'yes' ? 'yes' : r === 'no' ? 'no' : 'wait';
           return '<span class="tn-chip ' + cls + '">' + avatar(id, 'xs') + esc(nm(id)) + '<b>' + (r === 'yes' ? 'In' : r === 'no' ? 'Can’t' : 'Waiting') + '</b></span>';
         }).join('') + '</div>' +
-        '<span class="tn-sub">' + (st.allIn ? 'All four are in — set the tee time once the course is booked.' : st.declined.length ? esc(listNames(st.declined.map(nm))) + ' can’t make it. Withdraw it and pick another time.' : st.confirmed.length + ' of ' + t.players.length + ' confirmed') + '</span></div>' +
+        '<span class="tn-sub">' + (p.date < t.today ? 'That date has passed without everyone confirming. Withdraw it and pick another time.' : st.allIn ? 'All four are in — set the tee time once the course is booked.' : st.declined.length ? esc(listNames(st.declined.map(nm))) + ' can’t make it. Withdraw it and pick another time.' : st.confirmed.length + ' of ' + t.players.length + ' confirmed') + '</span></div>' +
         '<div class="tn-actions">' + (st.allIn ? '<button class="btn btn-primary" data-tee="schedule" data-id="' + p.id + '">' + ICON.check + 'Set tee time</button>'
           : me ? '<button class="btn ' + (mine === 'yes' ? 'btn-primary' : 'btn-ghost') + ' btn-sm" data-tee="respond" data-id="' + p.id + '" data-r="yes" aria-pressed="' + (mine === 'yes') + '">' + ICON.check + 'I’m in</button><button class="btn ' + (mine === 'no' ? 'btn-danger' : 'btn-ghost') + ' btn-sm" data-tee="respond" data-id="' + p.id + '" data-r="no" aria-pressed="' + (mine === 'no') + '">Can’t make it</button>'
           : '<span class="small muted">Pick your name below to reply</span>') +
@@ -1062,7 +1068,7 @@
           changes.slice(i, i + 30).forEach(function (ch) { delete batch[pid][ch.w]; });   // saved — no longer in flight
         }
       }
-      tee.savedAt = Date.now(); tee.error = '';
+      tee.savedAt = Date.now(); tee.error = ''; writeSeq++;
     } catch (e) {
       // keep everything that didn't save, with any newer taps taking precedence
       Object.keys(batch).forEach(function (pid) {
@@ -1080,6 +1086,8 @@
     if (state.route && state.route.page === 'tee-time') render();
   }
   function teeBusy() { return !!(tee.inflight || Object.keys(tee.pending).length); }
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden' && teeBusy()) flushAvail(); });
+  window.addEventListener('pagehide', function () { if (teeBusy()) flushAvail(); });
   window.addEventListener('beforeunload', function (e) { if (teeBusy()) { flushAvail(); e.preventDefault(); e.returnValue = ''; } });
 
   function toastUndo(msg, undo) {
@@ -1096,7 +1104,7 @@
   /* ---- proposing and scheduling ---- */
   async function teeAct(promise, ok, btn) {
     if (btn) busy(btn, true, 'Saving…');
-    try { await promise; closeModal(); if (ok) toast(ok); await refresh(); return true; }
+    try { await promise; writeSeq++; closeModal(); if (ok) toast(ok); await refresh(); return true; }
     catch (e) { if (btn) busy(btn, false); toast(e.message || 'Something went wrong.', 'error'); await refresh(); return false; }
   }
   function openPropose(w, di, si) {
@@ -1171,6 +1179,7 @@
       confirmDialog(p.status === 'scheduled' ? 'Cancel this tee time?' : 'Withdraw this proposal?', (p.status === 'scheduled' ? 'The round comes off the fixture list’s date and tee time. ' : '') + 'Everyone’s availability is kept, so you can propose another time straight away.', p.status === 'scheduled' ? 'Cancel tee time' : 'Withdraw', true)
         .then(function (ok) { if (ok) teeAct(state.store.withdrawProposal(p.id), p.status === 'scheduled' ? 'Tee time cancelled.' : 'Proposal withdrawn.'); });
     } else if (a === 'schedule') openSchedule(b.dataset.id);
+    else if (a === 'record') openSubmit(b.dataset.id);
   });
   // Keep the page current while people are filling it in on other phones.
   setInterval(function () {
@@ -1253,7 +1262,9 @@
 
   async function refresh(goTo) {
     try {
-      state.data = await state.store.load();
+      var seq = writeSeq, data = await state.store.load();
+      if (seq !== writeSeq) data = await state.store.load();   // something saved while loading: load again
+      state.data = data;
       pickDefaultSeason(false);
       if (goTo && location.hash !== goTo) { location.hash = goTo; return; } // hashchange renders once
       render();

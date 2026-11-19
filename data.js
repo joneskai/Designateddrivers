@@ -110,6 +110,7 @@
       var f = d.fixtures.filter(function (x) { return x.id === p.fixtureId; })[0];
       if (!f) throw new Error('Fixture not found.');
       if (p.mode === 'create' && f.status === 'completed') throw new Error('Round ' + f.round + ' already has a result. Edit it from the Fixtures page instead.');
+      if (f.status !== 'completed') f.plannedDate = f.date || null;      // like fixtures.scheduled_date vs results.played_on
       f.status = 'completed'; f.scoreA = p.scoreA; f.scoreB = p.scoreB; f.date = p.date; f.course = p.course; f.notes = p.notes || '';
       f.updatedAt = new Date().toISOString();
       return f;
@@ -118,6 +119,7 @@
   DemoStore.prototype.deleteResult = function (fixtureId) {
     return this._mutate(function (d) {
       var f = d.fixtures.filter(function (x) { return x.id === fixtureId; })[0];
+      if (f.status === 'completed') f.date = f.plannedDate || null;      // back to the planned date, not the played one
       f.status = 'scheduled'; f.scoreA = null; f.scoreB = null; f.notes = '';
     });
   };

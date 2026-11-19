@@ -128,7 +128,7 @@ const SHOTS = process.env.DD_SHOTS || '';
     // --- player card: empty to start, filled in from the profile, shown on the Players page
     await go('players/fitz', '.profile-hero');
     assert.deepStrictEqual(await page.$$eval('.bio-item .k', (k) => k.map((x) => x.textContent)), ['Favourite quote', 'Best shot', 'Biggest strength', 'Biggest weakness']);
-    assert.strictEqual(await page.$$eval('.bio-item .v.empty', (v) => v.length), 4);
+    assert.strictEqual(await page.$$eval('.bio-item .v.unset', (v) => v.length), 4);
     await page.click('[data-edit-bio="fitz"]'); await page.waitForSelector('#bio-quote');
     await page.fill('#bio-quote', 'Test quote <b>not bold</b>'); await page.fill('#bio-bestShot', 'Test best shot');
     await page.fill('#bio-strength', 'Test strength'); await page.fill('#bio-weakness', 'Test weakness');

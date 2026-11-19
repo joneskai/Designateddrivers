@@ -47,6 +47,11 @@
     var f = new Intl.DateTimeFormat('en-CA', { timeZone: tz || TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
     return f.format(now ? new Date(now) : new Date());
   }
+  /** Current wall-clock time 'HH:MM' in the competition time zone. */
+  function nowTime(tz, now) {
+    var f = new Intl.DateTimeFormat('en-GB', { timeZone: tz || TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+    return f.format(now ? new Date(now) : new Date());
+  }
   /** "Sat 9 Jan" */
   function shortDate(iso) { if (!validDate(iso)) return 'Date TBC'; var p = iso.split('-'); return WEEKDAYS[dow(iso)] + ' ' + (+p[2]) + ' ' + MONTHS[+p[1] - 1]; }
   /** "Fri 1 – Sun 3 Jan" or "Fri 29 Jan – Sun 1 Feb" */
@@ -105,6 +110,7 @@
         var date = addDays(fri, d.offset);
         if (date < o.today) return;                               // never suggest the past
         SLOTS.forEach(function (s, si) {
+          if (date === o.today && o.now && s.start <= o.now) return;   // that window has already started today
           var c = { weekend: fri, day: di, slot: si, date: date, label: s.label, yes: [], no: [], missing: [] };
           o.players.forEach(function (p) { c[cellStatus(o.avail, p, fri, di, si)].push(p); });
           out.push(c);
@@ -162,7 +168,7 @@
   return {
     TZ: TZ, GAP_DAYS: GAP_DAYS, INITIAL_WEEKS: INITIAL_WEEKS, EXTEND_BY: EXTEND_BY, MAX_WEEKS: MAX_WEEKS, DAYS: DAYS, SLOTS: SLOTS, FULL_MASK: FULL_MASK,
     addDays: addDays, dow: dow, validDate: validDate, isFriday: isFriday, fridayOnOrAfter: fridayOnOrAfter, today: today,
-    shortDate: shortDate, weekendLabel: weekendLabel,
+    shortDate: shortDate, weekendLabel: weekendLabel, nowTime: nowTime,
     eligibleFriday: eligibleFriday, currentFriday: currentFriday, windowFor: windowFor,
     bit: bit, dayBits: dayBits, has: has, apply: apply,
     cellStatus: cellStatus, overlaps: overlaps, best: best, responses: responses, blocker: blocker, proposalState: proposalState

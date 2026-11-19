@@ -130,6 +130,13 @@ test('days already past are never suggested', () => {
   const m = T.FULL_MASK; const avail = {}; P.forEach((p) => { avail[p] = { '2027-01-01': m }; });
   assert.strictEqual(T.best(base(avail, '2027-01-02')).date, '2027-01-02');
 });
+test('a window that has already started today is not suggested', () => {
+  const m = T.FULL_MASK; const avail = {}; P.forEach((p) => { avail[p] = { '2027-01-01': m }; });
+  const o = Object.assign(base(avail, '2027-01-02'), { now: '09:45' });          // Saturday 9:45 am
+  assert.strictEqual(T.best(o).label, 'Lunch');                                  // Early AM (7:00) and Late AM (9:30) have gone
+  assert.strictEqual(T.best(Object.assign(o, { now: '06:30' })).label, 'Early AM');
+  assert.strictEqual(T.nowTime('Australia/Perth', '2027-01-01T23:45:00Z'), '07:45');
+});
 test('preferred windows break ties on the same day', () => {
   const m = mask([SAT, EARLY], [SAT, TWI]); const avail = {}; P.forEach((p) => { avail[p] = { '2027-01-01': m }; });
   assert.strictEqual(T.best(base(avail)).label, 'Early AM');

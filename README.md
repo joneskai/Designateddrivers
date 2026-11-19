@@ -180,6 +180,11 @@ node tests/e2e.teetime.js http://localhost:8765
 ```
 The whole Tee Time flow at desktop and iPhone widths: picking a name, ticking, bulk actions and undo, persistence after refresh, a second device, propose → confirm → schedule → Fixtures and Clubhouse, entering, correcting and deleting the result, and extending when no time works.
 
+```bash
+node tests/e2e.review.js http://localhost:8765
+```
+Edge cases from the full-site review: score validation and a triple-tapped save, draws, correcting and deleting results, a date set on Fixtures locking a round in, a locked-in date that has passed, a proposal whose date has passed, switching name mid-save, retiring and restoring an offence, swapping pairings, the end of a season, and resetting demo data.
+
 `e2e.demo.js` runs the whole site at desktop and iPhone widths with no login: submit, correct and delete a result; issue, correct, pay and delete a fine; duplicate and bot protection; profiles. `e2e.live-mock.js` runs the Supabase path against a mocked client: every write is a function call, the club code flow, and the message shown before the database is updated.
 
 To check the database rules on a local PostgreSQL scratch database:

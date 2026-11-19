@@ -125,14 +125,20 @@ const SAT = 1, SUN = 2, EA = 0, LA = 1;
     await page.click('[data-tee="respond"][data-r="yes"]'); await page.waitForFunction(() => /2 of 4 confirmed/.test(document.querySelector('.tn-box').textContent));
     await pick('fitz'); await page.click('[data-tee="respond"][data-r="yes"]'); await page.waitForFunction(() => /3 of 4/.test(document.querySelector('.tn-box').textContent));
     await pick('forrest'); await page.click('[data-tee="respond"][data-r="yes"]');
-    await page.waitForSelector('[data-tee="schedule"]');
-    assert.match(await text('.tn-box'), /All four are in/);
+    // all four in = locked in: Round 05 moves to the top and the calendar moves on to Round 06
+    await page.waitForSelector('.tee-locked [data-tee="schedule"]');
+    const satIso = T.addDays(W[0], 1);
+    assert.match(await text('.tee-locked'), /Round 05/); assert.match(await text('.tee-locked'), /Date agreed by all four/);
+    assert.match(await text('.tee-next:not(.tee-locked)'), /Round 06/);
+    assert.match(await text('.tee-next:not(.tee-locked)'), new RegExp('Previous round: ' + T.shortDate(satIso) + ' \\(Round 05, date agreed\\)'));
+    assert.strictEqual(await text('.tw-dates'), T.weekendLabel(T.eligibleFriday(satIso)), 'Round 06 opens three weeks after the agreed date');
     if (phone) { await page.click('.tab-submit'); assert.match(await text('[data-act="schedule"]'), /set the tee time for Round 05/); await page.click('[data-act="schedule"]'); }
-    else await page.click('[data-tee="schedule"]');
+    else await page.click('.tee-locked [data-tee="schedule"]');
     assert.strictEqual(await page.inputValue('#tsTime'), '07:00', 'Early AM suggests 7:00');
     await page.fill('#tsTime', '07:40'); await page.fill('#tsCourse', 'Wembley Golf Course');
     await page.click('#tsGo');
-    await page.waitForSelector('.tn-box.scheduled');
+    await page.waitForFunction(() => /7:40 AM/.test(document.querySelector('.tee-locked').textContent));
+    assert.match(await text('.tee-next:not(.tee-locked)'), /Round 06/, 'still planning Round 06 once the tee time is set');
     const satDate = T.shortDate(T.addDays(W[0], 1));
     assert.match(await text('.tn-box'), new RegExp('Scheduled.*' + satDate + ' · 7:40 AM'));
     assert.match(await text('.tn-box'), /Booking the course is up to you/);
@@ -175,6 +181,26 @@ const SAT = 1, SUN = 2, EA = 0, LA = 1;
     await page.waitForSelector('.tn-box.best');
     assert.strictEqual((await stored()).fixtures[4].date, null);
     assert.ok((await stored()).availability.length >= 9);
+
+    // ---------- 10b. your case: lock a round in for Sun 13 Dec -> the next round's calendar opens Fri 1 Jan
+    await fresh();
+    const sun = T.addDays(W[1], 2);                         // Sunday of the second weekend shown
+    for (const who of ['jones', 'fitz', 'pirie', 'forrest']) { await pick(who); await page.click(cell(W[1], SUN, LA)); await saved(); }
+    await page.click(`.ov-row[data-w="${W[1]}"][data-d="2"][data-s="1"]`); await page.click('#tpGo');
+    await page.waitForSelector('.tn-box.proposed');
+    for (const who of ['jones', 'fitz', 'pirie']) { await pick(who); await page.click('[data-tee="respond"][data-r="yes"]'); await page.waitForTimeout(350); }
+    await page.waitForSelector('.tee-locked');
+    assert.match(await text('.tee-locked'), new RegExp('Round 05[\\s\\S]*' + T.shortDate(sun) + ' · Late AM'));
+    assert.match(await text('.tee-next:not(.tee-locked)'), /Round 06/);
+    const expectFri = T.eligibleFriday(sun);
+    if (sun === '2026-12-13') assert.strictEqual(expectFri, '2027-01-01');
+    assert.strictEqual(await text('.tw-dates'), T.weekendLabel(expectFri));
+    assert.match(await text('.tee-note'), new RegExp('Round 05 is locked in for ' + T.shortDate(sun) + ', so Round 06 opens the weekend of ' + T.shortDate(expectFri)));
+    // withdrawing it puts the calendar back on Round 05
+    await page.click('.tee-locked [data-tee="withdraw"]'); await page.click('#cfOk');
+    await page.waitForFunction(() => !document.querySelector('.tee-locked'));
+    assert.match(await text('.tee-next'), /Round 05/);
+    assert.strictEqual(await text('.tw-dates'), T.weekendLabel(W[0]));
 
     // ---------- 11. no overlap in the first four weekends -> extend by two, earlier answers kept
     await fresh();

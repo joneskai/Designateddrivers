@@ -173,10 +173,11 @@
     else {
       var when;
       if (n.date) when = fmtDate(n.date) + (n.teeTime ? ' · ' + time12(n.teeTime) : '') + (n.course ? ' · ' + esc(n.course) : ' · Course TBC');
-      else if (prop) when = 'Proposed · ' + T.shortDate(prop.date) + ' · ' + slotLabel(prop.slot);
+      else if (prop) when = (T.proposalState(fixturePlayers(n), prop.responses).allIn ? 'Agreed · ' : 'Proposed · ') + T.shortDate(prop.date) + ' · ' + slotLabel(prop.slot);
       else when = 'Round ' + pad2(n.round) + ' · Date TBC';
       nextHtml = '<div class="meta-next">' + ICON.calendar + '<span>' + when + '</span></div>';
-      if (!(prop && prop.status === 'scheduled') && !(state.route && state.route.page === 'tee-time')) link = '<a class="meta-link" href="#/tee-time">' + (prop ? 'Confirm on Tee Time' : 'Find a date') + ' →</a>';
+      var locked = lockOf(n);
+      if (!(locked && locked.kind !== 'agreed') && !(state.route && state.route.page === 'tee-time')) link = '<a class="meta-link" href="#/tee-time">' + (locked ? 'Set the tee time' : prop ? 'Confirm on Tee Time' : 'Find a date') + ' →</a>';
     }
     return '<div class="hero-meta"><div class="meta-block center"><span class="meta-label">Round</span><span class="meta-big">' + pad2(c.done.length) + ' / ' + total + '</span></div>' +
       '<div class="meta-block"><span class="meta-label">' + (n ? 'Next Round' : 'Status') + '</span>' + nextHtml + link + '</div></div>';
@@ -426,7 +427,7 @@
     var prop = done ? null : liveProposal(f.id);
     var status = done ? '<span class="badge done">' + (o.winner === 'DRAW' ? 'Halved' : 'Final') + '</span>'
       : prop && prop.status === 'scheduled' ? '<span class="badge done">Scheduled</span>'
-      : prop ? '<span class="badge next">Proposed</span>'
+      : prop ? '<span class="badge next">' + (T.proposalState(fixturePlayers(f), prop.responses).allIn ? 'Date agreed' : 'Proposed') + '</span>'
       : isNext ? '<span class="badge next">Up next</span>' : '<span class="badge">Upcoming</span>';
     var dateText = !done && !f.date && prop ? T.shortDate(prop.date) + ' · ' + slotLabel(prop.slot) + ' (proposed)' : fmtDate(f.date) + (!done && f.teeTime ? ' · ' + time12(f.teeTime) : '');
     var center = done ? '<div class="score-pill">' + f.scoreA + ' – ' + f.scoreB + '</div>' : '<div class="score-pill">vs</div>';
@@ -452,7 +453,7 @@
     var body = '<div class="fixture-detail-teams">' + team(f.teamA, 'A') + (done ? '<div class="score-pill">' + f.scoreA + ' – ' + f.scoreB + '</div>' : '<div class="score-pill" style="background:transparent;color:var(--muted);border:1.5px dashed var(--line-2)">vs</div>') + team(f.teamB, 'B') + '</div>' +
       (done ? (o.winner === 'DRAW' ? '<div class="win-banner draw"><span class="trophy">' + ICON.balance + '</span><div><div class="t1">All square</div><div class="t2">Both teams on ' + f.scoreA + ' gross · +1 pt each</div></div></div>' : '<div class="win-banner"><span class="trophy">' + ICON.trophy + '</span><div><div class="t1">' + esc(teamName(o.winners)) + ' win</div><div class="t2">By ' + plural(o.margin, 'stroke') + ' · +2 pts each</div></div></div>') : '<div class="callout info">This round has not been played yet.</div>') +
       '<ul class="confirm-list" style="margin-top:14px"><li><span>Date</span><span>' + fmtDate(f.date, true) + '</span></li>' + (!done && f.teeTime ? '<li><span>Tee-off</span><span>' + time12(f.teeTime) + '</span></li>' : '') +
-      (!done && c_isNext(f) ? '<li><span>Tee Time</span><span><a href="#/tee-time">' + (liveProposal(f.id) ? (liveProposal(f.id).status === 'scheduled' ? 'Scheduled' : 'Proposed') + ' — view' : 'Find a date') + ' →</a></span></li>' : '') + '<li><span>Course</span><span>' + esc(f.course || 'TBC') + '</span></li><li><span>Format</span><span>2-person Ambrose · gross</span></li>' +
+      (!done && (c_isNext(f) || (teeCtx().fixture || {}).id === f.id) ? '<li><span>Tee Time</span><span><a href="#/tee-time">' + (liveProposal(f.id) ? (liveProposal(f.id).status === 'scheduled' ? 'Scheduled' : 'Proposed') + ' — view' : 'Find a date') + ' →</a></span></li>' : '') + '<li><span>Course</span><span>' + esc(f.course || 'TBC') + '</span></li><li><span>Format</span><span>2-person Ambrose · gross</span></li>' +
       (f.notes ? '<li><span>Notes</span><span>' + esc(f.notes) + '</span></li>' : '') + '</ul>' +
       (fines.length ? '<div class="section-label">Fines this round</div><ul class="confirm-list">' + fines.map(function (x) { return '<li><span>' + esc(nm(x.playerId)) + ' — ' + esc(x.categoryName) + '</span><span>' + money(x.amount) + '</span></li>'; }).join('') + '</ul>' : '');
     var foot = (done ? '<button class="btn btn-danger btn-sm spacer" id="fxDel">' + ICON.trash + 'Delete result</button>' : '<button class="btn btn-ghost btn-sm spacer" id="fxSwap">' + ICON.swap + 'Swap pairing</button>') +
@@ -846,14 +847,62 @@
     });
     return m;
   }
+  function fixturePlayers(f) { return ids().filter(function (p) { return f.teamA.indexOf(p) !== -1 || f.teamB.indexOf(p) !== -1; }); }
+  /**
+   * A round counts as locked in once its date is settled: tee time set, all
+   * four confirmed a proposed date, or a date entered on the Fixtures page.
+   */
+  function lockOf(f) {
+    if (E.isCompleted(f)) return null;
+    var p = liveProposal(f.id);
+    if (p && p.status === 'scheduled') return { kind: 'scheduled', date: p.date, fixture: f, proposal: p };
+    if (p && T.proposalState(fixturePlayers(f), p.responses).allIn) return { kind: 'agreed', date: p.date, fixture: f, proposal: p };
+    if (!p && f.date) return { kind: 'dated', date: f.date, fixture: f };
+    return null;
+  }
+  /**
+   * Tee Time plans the first unplayed round that isn't locked in yet. Its
+   * calendar opens three weeks after the latest of: the last round played, or
+   * any earlier round already locked in (so locking in Round 1 for 13 Dec
+   * moves the calendar on to Round 2 from the weekend of 1 Jan).
+   */
   function teeCtx() {
-    var c = ctx(), f = c.next;
-    if (!f) return { c: c, fixture: null };
-    var last = lastPlayedFixture(), today = T.today(teeTz());
-    var win = T.windowFor({ lastPlayed: last ? last.date : null, today: today, weeks: f.teeWeeks });
-    var players = ids().filter(function (p) { return f.teamA.indexOf(p) !== -1 || f.teamB.indexOf(p) !== -1; });
+    var c = ctx(), today = T.today(teeTz()), locked = [], f = null;
+    c.fixtures.filter(function (x) { return !E.isCompleted(x); }).forEach(function (x) {
+      if (f) return;
+      var L = lockOf(x);
+      if (L) locked.push(L); else f = x;
+    });
+    if (!f) return { c: c, fixture: null, locked: locked, today: today };
+    var played = lastPlayedFixture();
+    var anchor = played ? { date: played.date, round: played.round, kind: 'played' } : null;
+    locked.forEach(function (L) { if (!anchor || L.date > anchor.date) anchor = { date: L.date, round: L.fixture.round, kind: L.kind }; });
+    var win = T.windowFor({ lastPlayed: anchor ? anchor.date : null, today: today, weeks: f.teeWeeks });
+    var players = fixturePlayers(f);
     var o = { players: players, weekends: win.weekends, avail: availMap(), today: today, preferred: cfg.teePreferredWindows || [] };
-    return { c: c, fixture: f, last: last, today: today, win: win, o: o, players: players, best: T.best(o), overlaps: T.overlaps(o).slice(0, 3), blocker: T.blocker(o), proposal: liveProposal(f.id) };
+    return { c: c, fixture: f, locked: locked, last: anchor, today: today, win: win, o: o, players: players, best: T.best(o), overlaps: T.overlaps(o).slice(0, 3), blocker: T.blocker(o), proposal: liveProposal(f.id) };
+  }
+  var LOCK_WORD = { played: '', scheduled: 'scheduled', agreed: 'date agreed', dated: 'date set' };
+
+  /** Rounds already locked in but not yet played, shown above the round being planned. */
+  function teeLockedCards(t) {
+    return (t.locked || []).map(function (L) {
+      var f = L.fixture, p = L.proposal, k, when, sub, acts;
+      if (L.kind === 'scheduled') {
+        k = 'Scheduled'; when = T.shortDate(p.date) + ' · ' + time12(p.teeTime); sub = esc(p.course) + ' · all four confirmed. Booking the course is up to you.';
+        acts = '<button class="btn btn-ghost btn-sm" data-tee="schedule" data-id="' + p.id + '">' + ICON.edit + 'Change</button><button class="btn btn-ghost btn-sm" data-tee="withdraw" data-id="' + p.id + '">Cancel</button>';
+      } else if (L.kind === 'agreed') {
+        k = 'Date agreed by all four'; when = T.shortDate(p.date) + ' · ' + slotLabel(p.slot); sub = 'Set the tee time and course once it’s booked.';
+        acts = '<button class="btn btn-primary btn-sm" data-tee="schedule" data-id="' + p.id + '">' + ICON.check + 'Set tee time</button><button class="btn-link" data-tee="withdraw" data-id="' + p.id + '">Withdraw</button>';
+      } else {
+        k = 'Date set on Fixtures'; when = T.shortDate(f.date) + (f.teeTime ? ' · ' + time12(f.teeTime) : ''); sub = esc(f.course || 'Course TBC');
+        acts = '<button class="btn btn-ghost btn-sm" data-fixture="' + f.id + '">' + ICON.edit + 'Edit</button>';
+      }
+      return '<section class="card tee-next tee-locked" aria-label="Round ' + f.round + ' locked in"><div class="tn-top"><span class="tn-round">Round ' + pad2(f.round) + '</span>' +
+        '<span class="tn-pair">' + esc(teamName(f.teamA)) + ' <i>v</i> ' + esc(teamName(f.teamB)) + '</span></div>' +
+        '<div class="tn-box scheduled"><span class="tn-icon">' + ICON.flag + '</span><div class="tn-main"><span class="tn-k">' + k + '</span><span class="tn-when">' + when + '</span><span class="tn-sub">' + sub + '</span></div>' +
+        '<div class="tn-actions">' + acts + '</div></div></section>';
+    }).join('');
   }
 
   function renderTeeTime() {
@@ -865,7 +914,9 @@
       html += '<div class="card empty"><div class="empty-icon">' + ICON.trophy + '</div><h4>Season complete</h4><p>Every round of ' + esc(seasonLabel(c.season)) + ' has been played. There’s nothing left to schedule.</p></div>';
     } else {
       var t = teeCtx();
-      html += teeNextCard(t) + teeAvailCard(t) + teeOverlapCard(t) + teeFootnote(t);
+      html += teeLockedCards(t);
+      if (t.fixture) html += teeNextCard(t) + teeAvailCard(t) + teeOverlapCard(t) + teeFootnote(t);
+      else html += '<div class="card empty"><div class="empty-icon">' + ICON.calendar + '</div><h4>Every remaining round has a date</h4><p>Nothing left to find a time for. Enter results as rounds are played.</p></div>';
     }
     app.innerHTML = html + '</div>';
   }
@@ -902,7 +953,8 @@
     }
     return '<section class="card tee-next" aria-label="Next fixture"><div class="tn-top"><span class="tn-round">Round ' + pad2(f.round) + '</span>' +
       '<span class="tn-pair">' + esc(teamName(f.teamA)) + ' <i>v</i> ' + esc(teamName(f.teamB)) + '</span>' +
-      '<span class="tn-last">' + (t.last ? 'Last round: ' + T.shortDate(t.last.date) + ' (Round ' + pad2(t.last.round) + ')' : 'First round of the season') + '</span></div>' + box + '</section>';
+      '<span class="tn-last">' + (!t.last ? 'First round of the season' : t.last.kind === 'played' ? 'Last round: ' + T.shortDate(t.last.date) + ' (Round ' + pad2(t.last.round) + ')'
+        : 'Previous round: ' + T.shortDate(t.last.date) + ' (Round ' + pad2(t.last.round) + ', ' + LOCK_WORD[t.last.kind] + ')') + '</span></div>' + box + '</section>';
   }
 
   /** "Waiting on Forrest to fill in availability." + who still has weekends left. */
@@ -974,10 +1026,11 @@
   }
 
   function teeFootnote(t) {
-    var f = t.fixture, txt;
-    if (!t.last) txt = 'First round of the season, so availability is open from this weekend.';
-    else if (t.win.slid) txt = 'Availability opens three weeks after the last round. Those weekends have passed, so the calendar starts from this weekend.';
-    else txt = 'Availability opens three weeks after the last round. Round ' + pad2(t.last.round) + ' was ' + T.shortDate(t.last.date) + ', so Round ' + pad2(f.round) + ' opens the weekend of ' + T.shortDate(t.win.start) + '.';
+    var f = t.fixture, a = t.last, txt;
+    if (!a) txt = 'First round of the season, so availability is open from this weekend.';
+    else if (t.win.slid) txt = 'Availability opens three weeks after the previous round. Those weekends have passed, so the calendar starts from this weekend.';
+    else if (a.kind === 'played') txt = 'Availability opens three weeks after the last round. Round ' + pad2(a.round) + ' was ' + T.shortDate(a.date) + ', so Round ' + pad2(f.round) + ' opens the weekend of ' + T.shortDate(t.win.start) + '.';
+    else txt = 'Availability opens three weeks after the previous round. Round ' + pad2(a.round) + ' is locked in for ' + T.shortDate(a.date) + ', so Round ' + pad2(f.round) + ' opens the weekend of ' + T.shortDate(t.win.start) + '.';
     return '<p class="tee-note">' + ICON.info + '<span>' + txt + '</span></p>';
   }
 
@@ -1130,11 +1183,18 @@
     var c = ctx();
     if (state.data.tee && state.data.tee.ready === false) return { sub: 'Needs the latest database update', run: function () { goThen('#/tee-time'); } };
     if (!c.next) return { sub: 'Every round has been played', disabled: true };
-    var t = teeCtx(), r = 'Round ' + pad2(t.fixture.round), p = t.proposal;
-    if (p && p.status === 'scheduled') return { sub: r + ' is set for ' + T.shortDate(p.date) + ', ' + time12(p.teeTime) + ' — change it', run: function () { goThen('#/tee-time', function () { openSchedule(p.id); }); } };
+    var t = teeCtx();
+    // a round everyone has agreed to but without a tee time comes first
+    var agreed = t.locked.filter(function (L) { return L.kind === 'agreed'; })[0];
+    if (agreed) return { sub: 'Everyone’s in — set the tee time for Round ' + pad2(agreed.fixture.round), run: function () { goThen('#/tee-time', function () { openSchedule(agreed.proposal.id); }); } };
+    if (!t.fixture) {
+      var last = t.locked[t.locked.length - 1];
+      return last && last.proposal ? { sub: 'Round ' + pad2(last.fixture.round) + ' is set for ' + T.shortDate(last.date) + ' — change it', run: function () { goThen('#/tee-time', function () { openSchedule(last.proposal.id); }); } }
+        : { sub: 'Every remaining round has a date', run: function () { goThen('#/tee-time'); } };
+    }
+    var r = 'Round ' + pad2(t.fixture.round), p = t.proposal;
     if (p) {
       var st = T.proposalState(t.players, p.responses);
-      if (st.allIn) return { sub: 'Everyone’s in — set the tee time for ' + r, run: function () { goThen('#/tee-time', function () { openSchedule(p.id); }); } };
       return { sub: r + ' proposed for ' + T.shortDate(p.date) + ' · waiting on ' + listNames(st.waiting.concat(st.declined).map(nm)), run: function () { goThen('#/tee-time'); } };
     }
     if (t.best) { var b = t.best; return { sub: 'Propose ' + T.shortDate(b.date) + ' · ' + b.label + ' for ' + r + ' (4/4 free)', run: function () { goThen('#/tee-time', function () { openPropose(b.weekend, b.day, b.slot); }); } }; }

@@ -987,17 +987,17 @@
         return '<label class="tee-radio"><input type="radio" name="teeWho" value="' + id + '"' + (id === me ? ' checked' : '') + '><span class="dot"></span>' + esc(nm(id)) + '</label>';
       }).join('') + '</div></div>';
     var weeks = t.win.weekends.map(function (w, wi) {
-      var mine = me ? t.o.avail[me][w] : undefined, answered = mine !== undefined;
+      var mine = me ? t.o.avail[me][w] : undefined, answered = T.answered(mine);
       var isBest = bestKey.indexOf(w + ':') === 0;
       var head = '<div class="tw-head"><div class="tw-title"><span class="tw-k">Week ' + (wi + 1) + '</span><span class="tw-dates">' + T.weekendLabel(w) + '</span></div>' +
         '<div class="tw-who" aria-label="Who is free this weekend">' + t.players.map(function (id) {
           var a = id in t.o.avail && w in t.o.avail[id];
-          // coloured only when at least one time is ticked; otherwise greyed (answered "can't" or no response yet)
-          var free = a && (t.o.avail[id][w] & T.FULL_MASK) !== 0;
-          return '<span class="tw-av' + (free ? ' in' : '') + '" title="' + esc(nm(id)) + (free ? ' is free at least once' : a ? ' can’t make this weekend' : ': no response yet') + '">' + avatar(id, 'xs') + '</span>';
+          // green once they've answered: at least one time ticked, or "Can't make it"
+          var m = t.o.avail[id][w], ok = T.answered(m);
+          return '<span class="tw-av' + (ok ? ' in' : '') + '" title="' + esc(nm(id)) + (!ok ? ': no response yet' : T.declined(m) ? ' can’t make this weekend' : ' is free at least once') + '">' + avatar(id, 'xs') + '</span>';
         }).join('') + '</div>' +
         (me ? '<div class="tw-actions"><button class="btn-link" data-tee="week" data-w="' + w + '" data-v="all">Free all weekend</button><button class="btn-link" data-tee="week" data-w="' + w + '" data-v="none">Can’t make it</button></div>' : '') +
-        (me && !answered ? '<span class="tw-note">Not answered yet</span>' : '') + '</div>';
+        (me && !answered ? '<span class="tw-note">Not answered yet</span>' : me && T.declined(mine) ? '<span class="tw-note out">You can’t make this weekend</span>' : '') + '</div>';
       var grid = '<div class="tw-grid' + (me ? '' : ' group') + '"><span class="tw-corner"></span>' + T.DAYS.map(function (d, di) {
         var date = T.addDays(w, d.offset), past = date < t.today;
         return me && !past ? '<button class="tw-day" data-tee="day" data-w="' + w + '" data-d="' + di + '" title="Toggle all of ' + d.long + '">' + d.short + ' ' + (+date.slice(8)) + '</button>'
@@ -1087,7 +1087,7 @@
         var ch = saved[pid][w];
         if (!T.isFriday(w) || !ch) return;
         tee.pending[pid] = tee.pending[pid] || {};
-        tee.pending[pid][w] = { s: (ch.s | 0) & T.FULL_MASK, c: (ch.c | 0) & T.FULL_MASK };
+        tee.pending[pid][w] = { s: (ch.s | 0) & T.ALL_BITS, c: (ch.c | 0) & T.ALL_BITS };
       });
     });
     if (teeBusy()) flushAvail();
@@ -1099,7 +1099,13 @@
     var batch = tee.pending; tee.pending = {}; tee.inflight = batch;
     try {
       for (var pid in batch) {
-        var changes = Object.keys(batch[pid]).map(function (w) { return { w: w, s: batch[pid][w].s, c: batch[pid][w].c }; });
+        var changes = Object.keys(batch[pid]).map(function (w) {
+          var ch = batch[pid][w], saved = (state.data.availability.filter(function (a) { return a.playerId === pid && a.weekend === w; })[0] || {}).mask || 0;
+          var c = ch.c, sb = ch.s;
+          if (!(saved & T.DECLINED)) c &= ~T.DECLINED;            // nothing to clear: keeps ordinary ticks working on any database version
+          if (tee.legacy) { sb &= ~T.DECLINED; c &= ~T.DECLINED; }
+          return { w: w, s: sb, c: c };
+        });
         for (var i = 0; i < changes.length; i += 30) {
           var rows = await state.store.setAvailability(pid, changes.slice(i, i + 30));
           (rows || []).forEach(function (r) {
@@ -1111,6 +1117,11 @@
       }
       tee.savedAt = Date.now(); tee.error = ''; tee.retries = 0; writeSeq++;
     } catch (e) {
+      // database not yet updated for "Can't make it": fall back to the old behaviour rather than failing
+      if (!tee.legacy && /Invalid availability change/.test(e.message || '') && Object.keys(batch).some(function (pid) { return Object.keys(batch[pid]).some(function (w) { return batch[pid][w].s & T.DECLINED; }); })) {
+        tee.legacy = true;
+        toast('“Can’t make it” needs the latest database update (run supabase-schema.sql in Supabase). Your other taps are fine.', 'error');
+      }
       // keep everything that didn't save, with any newer taps taking precedence
       Object.keys(batch).forEach(function (pid) {
         Object.keys(batch[pid]).forEach(function (w) {
@@ -1127,6 +1138,7 @@
     }
     tee.inflight = null;
     persistPending();
+    if (tee.legacy && tee.error && /Invalid availability change/.test(tee.error) && tee.retries === 1) { tee.error = ''; tee.retries = 0; clearTimeout(tee.timer); return flushAvail(); }
     if (Object.keys(tee.pending).length && !tee.error) return flushAvail();
     if (state.route && state.route.page === 'tee-time') render();
   }
@@ -1201,16 +1213,16 @@
     var mask = function () { return tee.player ? availMap()[tee.player][w] : undefined; };
     if (a === 'cell') {
       var bt = T.bit(+b.dataset.d, +b.dataset.s), m0 = mask();
-      if (m0 !== undefined && (m0 & bt)) queueAvail(w, 0, bt); else queueAvail(w, bt, 0);
+      if (m0 !== undefined && (m0 & bt)) queueAvail(w, 0, bt); else queueAvail(w, bt, T.DECLINED);
     } else if (a === 'day') {
       var db = T.dayBits(+b.dataset.d), m1 = mask() || 0;
-      if ((m1 & db) === db) queueAvail(w, 0, db); else queueAvail(w, db, 0);
+      if ((m1 & db) === db) queueAvail(w, 0, db); else queueAvail(w, db, T.DECLINED);
     } else if (a === 'week') {
       var before = mask(), pid = tee.player, wk = w;
-      if (b.dataset.v === 'all') queueAvail(w, T.FULL_MASK, 0); else queueAvail(w, 0, T.FULL_MASK);
+      if (b.dataset.v === 'all') queueAvail(w, T.FULL_MASK, T.DECLINED); else queueAvail(w, T.DECLINED, T.FULL_MASK);
       if (before !== undefined) toastUndo(b.dataset.v === 'all' ? 'Whole weekend marked free.' : 'Marked as can’t make it.', function () {
         if (tee.player !== pid) return;
-        queueAvail(wk, before, T.FULL_MASK & ~before);
+        queueAvail(wk, before, T.ALL_BITS & ~before);
       });
     } else if (a === 'retry') { tee.error = ''; tee.retries = 0; flushAvail(); render(); }
     else if (a === 'extend') {

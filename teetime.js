@@ -29,7 +29,9 @@
     { key: 'early_pm', label: 'Early PM', start: '13:30' },
     { key: 'twilight', label: 'Twilight', start: '16:00' }
   ];
-  var FULL_MASK = (1 << (DAYS.length * SLOTS.length)) - 1;   // 32767
+  var FULL_MASK = (1 << (DAYS.length * SLOTS.length)) - 1;   // 32767: the fifteen time slots
+  var DECLINED = 1 << 15;                                      // "Can't make it" pressed for the whole weekend
+  var ALL_BITS = FULL_MASK | DECLINED;                         // 65535
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -91,17 +93,24 @@
   function dayBits(day) { var m = 0; for (var s = 0; s < SLOTS.length; s++) m |= bit(day, s); return m; }
   function has(mask, day, slot) { return ((mask || 0) & bit(day, slot)) !== 0; }
   /** Apply set/clear bits (clear wins), as the database does. */
-  function apply(mask, set, clear) { return ((mask || 0) | (set || 0)) & ~(clear || 0) & FULL_MASK; }
+  function apply(mask, set, clear) { return ((mask || 0) | (set || 0)) & ~(clear || 0) & ALL_BITS; }
+  /**
+   * A weekend counts as answered once a player has ticked at least one time,
+   * or pressed "Can't make it". Ticking a time and unticking it again leaves
+   * the weekend unanswered.
+   */
+  function answered(mask) { return mask !== undefined && mask !== null && ((mask & FULL_MASK) !== 0 || (mask & DECLINED) !== 0); }
+  function declined(mask) { return answered(mask) && (mask & FULL_MASK) === 0; }
 
   /**
-   * avail: { playerId: { 'YYYY-MM-DD' (Friday): mask } } — a weekend key that
-   * exists means the player has answered that weekend (unticked = can't play);
-   * a missing key means no response yet, which is never treated as a "no".
+   * avail: { playerId: { 'YYYY-MM-DD' (Friday): mask } }. On an answered
+   * weekend, unticked times mean "can't play"; an unanswered weekend is "no
+   * response yet", which is never treated as a "no".
    */
   function cellStatus(avail, playerId, friday, day, slot) {
-    var w = avail[playerId] || {};
-    if (!(friday in w)) return 'missing';
-    return has(w[friday], day, slot) ? 'yes' : 'no';
+    var m = (avail[playerId] || {})[friday];
+    if (!answered(m)) return 'missing';
+    return has(m, day, slot) ? 'yes' : 'no';
   }
   function cells(o) {
     var out = [];
@@ -145,8 +154,8 @@
   function responses(o) {
     return o.players.map(function (p) {
       var w = o.avail[p] || {};
-      var answered = o.weekends.filter(function (f) { return f in w; });
-      return { id: p, answered: answered.length, total: o.weekends.length, complete: answered.length === o.weekends.length };
+      var done = o.weekends.filter(function (f) { return answered(w[f]); });
+      return { id: p, answered: done.length, total: o.weekends.length, complete: done.length === o.weekends.length };
     });
   }
   /** Why there's no all-four time yet: still waiting on people, or genuinely no overlap. */
@@ -166,7 +175,7 @@
   }
 
   return {
-    TZ: TZ, GAP_DAYS: GAP_DAYS, INITIAL_WEEKS: INITIAL_WEEKS, EXTEND_BY: EXTEND_BY, MAX_WEEKS: MAX_WEEKS, DAYS: DAYS, SLOTS: SLOTS, FULL_MASK: FULL_MASK,
+    TZ: TZ, GAP_DAYS: GAP_DAYS, INITIAL_WEEKS: INITIAL_WEEKS, EXTEND_BY: EXTEND_BY, MAX_WEEKS: MAX_WEEKS, DAYS: DAYS, SLOTS: SLOTS, FULL_MASK: FULL_MASK, DECLINED: DECLINED, ALL_BITS: ALL_BITS, answered: answered, declined: declined,
     addDays: addDays, dow: dow, validDate: validDate, isFriday: isFriday, fridayOnOrAfter: fridayOnOrAfter, today: today,
     shortDate: shortDate, weekendLabel: weekendLabel, nowTime: nowTime,
     eligibleFriday: eligibleFriday, currentFriday: currentFriday, windowFor: windowFor,

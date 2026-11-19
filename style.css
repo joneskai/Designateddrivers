@@ -493,6 +493,7 @@ textarea.input { min-height: 80px; resize: vertical; }
 .tw-av.in .avatar { opacity: 1; filter: none; box-shadow: 0 0 0 1.5px var(--yes); }
 .tw-actions { display: flex; flex-wrap: wrap; gap: 0 12px; }
 .tw-note { font-size: 12px; font-weight: 600; color: var(--gold-deep); }
+.tw-note.out { color: var(--ink-2); }
 .tw-grid { display: grid; grid-template-columns: 70px repeat(3, minmax(0, 1fr)); gap: 4px 6px; align-items: center; }
 .tw-corner { display: block; }
 .tw-day { font-weight: 700; font-size: 14px; text-align: center; padding: 2px 0 4px; background: none; border: 0; color: #111; border-radius: 8px; min-height: 30px; }

@@ -162,6 +162,12 @@ function startServer() {
     await dev.fitz.page.waitForSelector(`.tee-week:nth-child(4) .tw-av.in img[alt="Jones"]`, { timeout: 25000 });
     step('Jones\' new tick showed up on Fitz\'s phone by itself after ' + Math.round((Date.now() - t0) / 1000) + 's');
 
+    // ---------- 3b. "Can't make it" on one phone turns that player green on the others
+    await dev.forrest.page.click(`[data-tee="week"][data-w="${W[3]}"][data-v="none"]`); await saved(dev.forrest);
+    assert.strictEqual((await masks())['forrest|' + W[3]], T.DECLINED);
+    await dev.fitz.page.waitForSelector(`.tee-week:nth-child(4) .tw-av.in img[alt="Forrest"]`, { timeout: 25000 });
+    step('Forrest pressed "Can\'t make it": shown green (answered) on Fitz\'s phone');
+
     // ---------- 4. the same person on two devices at once
     const jones2 = await device('jones-laptop', '10.0.0.9', 'jones');
     await Promise.all([dev.jones.page.click(cell(W[3], SUN, EA)), jones2.page.click(cell(W[3], SUN, TW))]);

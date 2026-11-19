@@ -70,6 +70,21 @@ test('fifteen cells per weekend; clear wins over set', () => {
   assert.strictEqual(T.apply(0, T.bit(SUN, TWI), T.bit(SUN, TWI)), 0);
 });
 
+test('"Can\'t make it" is an answer; ticking then unticking is not', () => {
+  const avail = { jones: { '2027-01-08': T.DECLINED }, fitz: { '2027-01-08': 0 }, pirie: { '2027-01-08': T.bit(SAT, EARLY) } };
+  assert.ok(T.answered(T.DECLINED) && T.declined(T.DECLINED));
+  assert.ok(!T.answered(0) && !T.answered(undefined));
+  assert.ok(T.answered(T.bit(SAT, EARLY)) && !T.declined(T.bit(SAT, EARLY)));
+  assert.strictEqual(T.cellStatus(avail, 'jones', '2027-01-08', SAT, EARLY), 'no');
+  assert.strictEqual(T.cellStatus(avail, 'fitz', '2027-01-08', SAT, EARLY), 'missing');
+  assert.strictEqual(T.cellStatus(avail, 'pirie', '2027-01-08', SUN, EARLY), 'no');
+  // ticking a time after "can't make it" clears the flag, as the tap handler does
+  assert.strictEqual(T.apply(T.DECLINED, T.bit(SUN, LATE), T.DECLINED), T.bit(SUN, LATE));
+  assert.strictEqual(T.apply(T.FULL_MASK, T.DECLINED, T.FULL_MASK), T.DECLINED);
+  const r = T.responses({ players: P, weekends: ['2027-01-08'], avail });
+  assert.deepStrictEqual(r.map((x) => [x.id, x.complete]), [['jones', true], ['fitz', false], ['pirie', true], ['forrest', false]]);
+});
+
 console.log('Best overlaps');
 const W = T.windowFor({ lastPlayed: '2026-12-13', today: '2026-12-14' }).weekends;
 const base = (avail, today) => ({ players: P, weekends: W, avail, today: today || '2026-12-14' });
@@ -83,7 +98,7 @@ test('all four available -> recommended, 4/4', () => {
 });
 test('only three available -> shown as an alternative, never recommended', () => {
   const m = mask([SAT, EARLY]);
-  const avail = { jones: { '2027-01-08': m }, fitz: { '2027-01-08': m }, pirie: { '2027-01-08': m }, forrest: { '2027-01-08': 0 } };
+  const avail = { jones: { '2027-01-08': m }, fitz: { '2027-01-08': m }, pirie: { '2027-01-08': m }, forrest: { '2027-01-08': T.DECLINED } };
   assert.strictEqual(T.best(base(avail)), null);
   const top = T.overlaps(base(avail))[0];
   assert.strictEqual(top.yes.length, 3); assert.deepStrictEqual(top.no, ['forrest']);
@@ -103,7 +118,7 @@ test('3/4 with one missing ranks above 3/4 with one explicit no', () => {
     jones: { '2027-01-01': mask([FRI, TWI]), '2027-01-15': mask([FRI, TWI]) },
     fitz: { '2027-01-01': mask([FRI, TWI]), '2027-01-15': mask([FRI, TWI]) },
     pirie: { '2027-01-01': mask([FRI, TWI]), '2027-01-15': mask([FRI, TWI]) },
-    forrest: { '2027-01-01': 0 }
+    forrest: { '2027-01-01': T.DECLINED }
   };
   const top = T.overlaps(base(avail)).map((c) => c.date);
   assert.deepStrictEqual(top.slice(0, 2), ['2027-01-15', '2027-01-01']);

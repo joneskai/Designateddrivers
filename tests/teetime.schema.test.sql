@@ -18,6 +18,11 @@ select set_availability('jones', jsonb_build_array(jsonb_build_object('w', :'fri
 select 'jones mask=' || mask from availability where player_id = 'jones' and weekend = :'fri';
 select set_availability('fitz', jsonb_build_array(jsonb_build_object('w', :'fri', 's', 0, 'c', 32767)));
 select 'fitz answered with nothing ticked: mask=' || mask from availability where player_id = 'fitz';
+select set_availability('forrest', jsonb_build_array(jsonb_build_object('w', :'fri', 's', 32768, 'c', 32767)));   -- "can't make it"
+select 'forrest can''t make it: mask=' || mask from availability where player_id = 'forrest';
+select set_availability('forrest', jsonb_build_array(jsonb_build_object('w', :'fri', 's', 2, 'c', 32768)));       -- then ticks a time
+select 'forrest ticked a time: mask=' || mask from availability where player_id = 'forrest';
+select set_availability('forrest', jsonb_build_array(jsonb_build_object('w', :'fri', 's', 65536)));               -- out of range
 select set_availability('jones', jsonb_build_array(jsonb_build_object('w', (:'fri'::date + 1)::text, 's', 1)));   -- a Saturday
 select set_availability('jones', jsonb_build_array(jsonb_build_object('w', :'fri', 's', 99999)));
 select set_availability('jones', jsonb_build_array(jsonb_build_object('w', 'not-a-date', 's', 1)));

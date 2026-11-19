@@ -63,7 +63,16 @@ const SAT = 1, SUN = 2, EA = 0, LA = 1;
     assert.ok(await page.$(forrestAv + '.in'), 'coloured with a time ticked');
     await page.click(cell(W[0], SAT, LA)); await saved();
     assert.ok(!(await page.$(forrestAv + '.in')), 'grey again once nothing is ticked');
+    assert.strictEqual(await page.getAttribute(forrestAv, 'title'), 'Forrest: no response yet');
+    assert.match(await text('.tee-week:first-child'), /Not answered yet/, 'unticking everything is not an answer');
+    // "Can't make it" IS an answer: green, and the weekend counts as answered
+    await page.click(`[data-tee="week"][data-w="${W[0]}"][data-v="none"]`); await saved();
+    assert.ok(await page.$(forrestAv + '.in'), 'green after Can’t make it');
     assert.strictEqual(await page.getAttribute(forrestAv, 'title'), 'Forrest can’t make this weekend');
+    assert.match(await text('.tee-week:first-child'), /You can’t make this weekend/);
+    assert.strictEqual(await page.$$eval(`[data-tee="cell"][data-w="${W[0]}"].no`, (c) => c.length) + await page.$$eval(`[data-tee="cell"][data-w="${W[0]}"].past`, (c) => c.length), 15);
+    await page.reload(); await page.waitForSelector('.tee-next');
+    assert.ok(await page.$(forrestAv + '.in'), 'still green after refresh');
     await page.click(cell(W[0], SAT, EA));
     await saved();
     assert.ok(await page.$(forrestAv + '.in'));

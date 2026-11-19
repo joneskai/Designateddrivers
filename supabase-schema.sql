@@ -153,16 +153,21 @@ alter table public.fixtures add column if not exists tee_time time;
 alter table public.fixtures add column if not exists tee_weeks smallint not null default 4;
 
 -- Availability: one row per player per weekend (keyed by its Friday).
--- mask holds 15 bits: Fri/Sat/Sun × Early AM, Late AM, Lunch, Early PM, Twilight
--- (bit = day*5 + window). A row means the player has answered that weekend;
--- no row means "no response yet", which is never treated as "can't play".
+-- mask bits 0–14: Fri/Sat/Sun × Early AM, Late AM, Lunch, Early PM, Twilight
+-- (bit = day*5 + window); bit 15: "Can't make it" pressed for the weekend.
+-- A weekend is answered once any time is ticked or bit 15 is set; otherwise
+-- it's "no response yet", which is never treated as "can't play".
 create table if not exists public.availability (
   player_id   text not null references public.players(id) on update cascade on delete cascade,
   weekend     date not null check (extract(isodow from weekend) = 5),
-  mask        int  not null default 0 check (mask between 0 and 32767),
+  mask        int  not null default 0 check (mask between 0 and 65535),
   updated_at  timestamptz not null default now(),
   primary key (player_id, weekend)
 );
+
+-- Existing projects: allow the "Can't make it" bit (bit 15).
+alter table public.availability drop constraint if exists availability_mask_check;
+alter table public.availability add constraint availability_mask_check check (mask between 0 and 65535);
 
 -- A proposed date for a fixture, the four confirmations, and the final tee time.
 create table if not exists public.tee_proposals (
@@ -587,7 +592,7 @@ begin
     end;
     if v_w is null or extract(isodow from v_w) <> 5 then raise exception 'Availability is saved by weekend, starting Friday'; end if;
     if v_w < current_date - 14 or v_w > current_date + 400 then raise exception 'That weekend is out of range'; end if;
-    if v_s not between 0 and 32767 or v_c not between 0 and 32767 then raise exception 'Invalid availability change'; end if;
+    if v_s not between 0 and 65535 or v_c not between 0 and 65535 then raise exception 'Invalid availability change'; end if;
   end loop;
   select coalesce(jsonb_agg(jsonb_build_object('w', a.weekend, 'mask', a.mask)), '[]'::jsonb) into v_prev
     from public.availability a where a.player_id = p_player_id and a.weekend in (select (e->>'w')::date from jsonb_array_elements(p_changes) e);

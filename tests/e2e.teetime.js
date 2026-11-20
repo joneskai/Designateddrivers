@@ -56,6 +56,9 @@ const SAT = 1, SUN = 2, EA = 0, LA = 1;
     // ---------- 3. Forrest picks his name and taps; the fourth tick makes it 4/4
     await pick('forrest');
     assert.match(await text('.tee-week'), /Not answered yet/);
+    // while editing, each time shows how many of the four are free there
+    assert.strictEqual((await text(cell(W[0], SAT, EA))).trim(), '–3/4');
+    assert.match(await page.getAttribute(cell(W[0], SAT, EA), 'aria-label'), /3 of 4 available/);
     const forrestAv = `.tee-week:first-child .tw-av:has(img[alt="Forrest"])`;
     assert.ok(!(await page.$(forrestAv + '.in')), 'greyed before answering');
     // tick then untick: no times selected -> his icon goes back to grey
@@ -80,6 +83,8 @@ const SAT = 1, SUN = 2, EA = 0, LA = 1;
     assert.match(await text('.tn-box.best'), new RegExp(T.shortDate(T.addDays(W[0], 1)) + ' · Early AM'));
     assert.match(await text('.tn-box.best'), /4\/4 available/);
     assert.ok(await page.$('.tee-week.best'), 'the week with the best time is highlighted');
+    assert.strictEqual((await text(cell(W[0], SAT, EA))).trim(), '4/4', 'your own tick counts: 4/4');
+    assert.ok(await page.$(cell(W[0], SAT, EA) + ' .tw-n.all'));
     // the rest of that weekend is now a confirmed "no" for Forrest
     assert.ok(await page.$(cell(W[0], SUN, LA) + '.no'));
     assert.match(await text('.ov-list'), /Sun 6 Dec · Late AM · 3\/4|· 3\/4/);

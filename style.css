@@ -512,6 +512,10 @@ button.tw-day:hover { background: rgba(0,0,0,.05); }
 .tw-slot { font-size: 13px; color: var(--ink-2); white-space: nowrap; }
 .tw-cell { height: 30px; border-radius: 9px; border: 0; display: grid; place-items: center; background: var(--no-bg); color: var(--no-ink); font-size: 14px; padding: 0; -webkit-tap-highlight-color: transparent; transition: background .12s, transform .08s; }
 .tw-cell i { font-style: normal; }
+button.tw-cell { display: flex; align-items: center; justify-content: center; gap: 5px; }
+.tw-n { font-size: 11.5px; font-weight: 700; color: #8C8B83; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.tw-cell.yes .tw-n { color: var(--yes); }
+.tw-n.all { color: #fff !important; background: var(--yes); border-radius: 6px; padding: 1px 5px; }
 .tw-cell svg { width: 17px; height: 17px; stroke-width: 2.6; color: var(--yes); }
 .tw-cell.yes { background: var(--yes-bg); }
 .tw-cell.empty { background: #fff; box-shadow: inset 0 0 0 1px #DAD7CC; color: #C9C6BC; }

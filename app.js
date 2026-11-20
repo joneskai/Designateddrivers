@@ -1016,7 +1016,10 @@
             return '<span class="tw-cell count c' + n + star + (past ? ' past' : '') + '" data-w="' + w + '" data-d="' + di + '" data-s="' + si + '" title="' + lbl + ': ' + n + ' of ' + t.players.length + ' available">' + (n ? n + '/' + t.players.length : '–') + '</span>';
           }
           var on = answered && T.has(mine, di, si), cls = past ? 'past' : on ? 'yes' : answered ? 'no' : 'empty';
-          return '<button class="tw-cell ' + cls + star + '" data-tee="cell" data-w="' + w + '" data-d="' + di + '" data-s="' + si + '" aria-pressed="' + on + '" aria-label="' + lbl + (on ? ': available' : ': not available') + '"' + (past ? ' disabled' : '') + '>' + (on ? ICON.check : '<i>–</i>') + '</button>';
+          // how many of the four are free at this time (you included), e.g. "2/4"
+          var n = t.players.filter(function (p) { return T.cellStatus(t.o.avail, p, w, di, si) === 'yes'; }).length;
+          var tally = !past && n ? '<b class="tw-n' + (n === t.players.length ? ' all' : '') + '">' + n + '/' + t.players.length + '</b>' : '';
+          return '<button class="tw-cell ' + cls + star + '" data-tee="cell" data-w="' + w + '" data-d="' + di + '" data-s="' + si + '" aria-pressed="' + on + '" aria-label="' + lbl + (on ? ': you’re available' : ': you’re not available') + ', ' + n + ' of ' + t.players.length + ' available"' + (past ? ' disabled' : '') + '>' + (on ? ICON.check : '<i>–</i>') + tally + '</button>';
         }).join('');
       }).join('') + '</div>';
       return '<div class="tee-week' + (isBest ? ' best' : '') + '">' + head + grid + '</div>';

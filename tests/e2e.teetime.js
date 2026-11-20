@@ -96,11 +96,43 @@ const SAT = 1, SUN = 2, EA = 0, LA = 1;
     await page.click(`[data-tee="day"][data-w="${W[2]}"][data-d="0"]`); await saved();
     assert.strictEqual(await page.$$eval(`[data-tee="cell"][data-w="${W[2]}"][data-d="0"].yes`, (c) => c.length), 0, 'tapping a full day clears it');
 
+    // ---------- 4b. bulk buttons switch on and off; switching off goes back to how the weekend was
+    const bulk = (w, v) => `[data-tee="week"][data-w="${w}"][data-v="${v}"]`;
+    const yesCount = (w) => page.$$eval(`[data-tee="cell"][data-w="${w}"].yes`, (c) => c.length);
+    const W3 = W[3];
+    assert.match(await text('.tee-week:nth-child(4)'), /Not answered yet/);
+    await page.click(bulk(W3, 'all')); await saved();
+    assert.strictEqual(await page.getAttribute(bulk(W3, 'all'), 'aria-pressed'), 'true');
+    await page.click(bulk(W3, 'all')); await saved();                        // tap again: off
+    assert.strictEqual(await page.getAttribute(bulk(W3, 'all'), 'aria-pressed'), 'false');
+    assert.strictEqual(await yesCount(W3), 0); assert.match(await text('.tee-week:nth-child(4)'), /Not answered yet/);
+    await page.click(cell(W3, SUN, LA)); await saved();                      // one time ticked
+    await page.click(bulk(W3, 'none')); await saved();                       // can't make it: on
+    assert.strictEqual(await page.getAttribute(bulk(W3, 'none'), 'aria-pressed'), 'true');
+    assert.match(await text('.tee-week:nth-child(4)'), /You can’t make this weekend/);
+    await page.click(bulk(W3, 'none')); await saved();                       // tap again: back to the one tick
+    assert.strictEqual(await page.getAttribute(bulk(W3, 'none'), 'aria-pressed'), 'false');
+    assert.ok(await page.$(cell(W3, SUN, LA) + '.yes')); assert.strictEqual(await yesCount(W3), 1);
+    await page.click(bulk(W3, 'all')); await saved(); await page.click(bulk(W3, 'all')); await saved();
+    assert.strictEqual(await yesCount(W3), 1, 'Free all weekend off: back to the earlier tick');
+    await page.click(cell(W3, SUN, LA)); await saved();                      // untick: unanswered again
+    await page.click(bulk(W3, 'none')); await saved(); await page.click(bulk(W3, 'none')); await saved();
+    assert.match(await text('.tee-week:nth-child(4)'), /Not answered yet/, 'can’t make it off from unanswered: unanswered');
+    assert.ok(!(await page.$(`.tee-week:nth-child(4) .tw-av.in img[alt="Forrest"]`)));
+    // ---------- 4c. tap someone's icon to edit their availability
+    await page.click(`.tee-week:first-child .tw-av:has(img[alt="Pirie"])`);
+    await page.waitForFunction(() => /Pirie/.test(document.querySelector('.tee-editing').textContent));
+    assert.ok(await page.isChecked('input[name="teeWho"][value="pirie"]'));
+    assert.strictEqual(await page.getAttribute(`.tee-week:first-child .tw-av:has(img[alt="Pirie"])`, 'aria-pressed'), 'true');
+    assert.ok(await page.$(cell(W[0], SAT, EA) + '.yes'), 'shows Pirie\'s saved ticks');
+    await page.click(`.tee-week:first-child .tw-av:has(img[alt="Forrest"])`);
+    await page.waitForFunction(() => /Forrest/.test(document.querySelector('.tee-editing').textContent));
+
     // ---------- 5. persists after refresh; player remembered on this device
     await page.reload(); await page.waitForSelector('.tee-next');
     assert.match(await text('.tee-editing'), /Forrest/);
     assert.ok(await page.$(cell(W[0], SAT, EA) + '.yes'));
-    assert.strictEqual((await stored()).availability.filter((a) => a.playerId === 'forrest').length, 2);
+    assert.strictEqual((await stored()).availability.filter((a) => a.playerId === 'forrest').length, 3);
 
     // ---------- 6. another device (second tab) edits the same weekend: both changes kept and visible.
     // (Truly simultaneous writes are merged by the database, bit by bit — see tests/teetime.schema.test.sql.

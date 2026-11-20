@@ -827,7 +827,7 @@
   // Find the next date all four can play. The calendar opens three weeks after
   // the last round (rules in teetime.js) and feeds straight into the fixture.
   var TEE_PLAYER_KEY = 'dd-tee-player';
-  var tee = { player: null, pending: {}, inflight: null, timer: null, error: '', savedAt: 0 };
+  var tee = { player: null, pending: {}, inflight: null, timer: null, error: '', savedAt: 0, bulkPrev: {} };
   var writeSeq = 0;
   try { tee.player = localStorage.getItem(TEE_PLAYER_KEY) || null; } catch (e) {}
   function teeTz() { return cfg.timezone || T.TZ; }
@@ -994,9 +994,14 @@
           var a = id in t.o.avail && w in t.o.avail[id];
           // green once they've answered: at least one time ticked, or "Can't make it"
           var m = t.o.avail[id][w], ok = T.answered(m);
-          return '<span class="tw-av' + (ok ? ' in' : '') + '" title="' + esc(nm(id)) + (!ok ? ': no response yet' : T.declined(m) ? ' can’t make this weekend' : ' is free at least once') + '">' + avatar(id, 'xs') + '</span>';
+          var state_ = !ok ? ': no response yet' : T.declined(m) ? ' can’t make this weekend' : ' is free at least once';
+          return '<button type="button" class="tw-av' + (ok ? ' in' : '') + (id === me ? ' me' : '') + '" data-tee="who" data-id="' + id + '" title="' + esc(nm(id)) + state_ + (id === me ? '' : ' — tap to edit') + '" aria-label="' + esc(nm(id)) + state_ + (id === me ? ' (editing)' : '. Tap to edit ' + esc(nm(id)) + '’s availability') + '" aria-pressed="' + (id === me) + '">' + avatar(id, 'xs') + '</button>';
         }).join('') + '</div>' +
-        (me ? '<div class="tw-actions"><button class="btn-link" data-tee="week" data-w="' + w + '" data-v="all">Free all weekend</button><button class="btn-link" data-tee="week" data-w="' + w + '" data-v="none">Can’t make it</button></div>' : '') +
+        (me ? (function () {
+          var allFree = answered && (mine & T.FULL_MASK) === T.FULL_MASK, cant = T.declined(mine);
+          return '<div class="tw-actions"><button class="tw-bulk' + (allFree ? ' on' : '') + '" data-tee="week" data-w="' + w + '" data-v="all" aria-pressed="' + allFree + '">' + (allFree ? ICON.check : '') + 'Free all weekend</button>' +
+            '<button class="tw-bulk' + (cant ? ' on no' : '') + '" data-tee="week" data-w="' + w + '" data-v="none" aria-pressed="' + cant + '">' + (cant ? ICON.close : '') + 'Can’t make it</button></div>';
+        })() : '') +
         (me && !answered ? '<span class="tw-note">Not answered yet</span>' : me && T.declined(mine) ? '<span class="tw-note out">You can’t make this weekend</span>' : '') + '</div>';
       var grid = '<div class="tw-grid' + (me ? '' : ' group') + '"><span class="tw-corner"></span>' + T.DAYS.map(function (d, di) {
         var date = T.addDays(w, d.offset), past = date < t.today;
@@ -1202,11 +1207,15 @@
 
   document.addEventListener('change', function (e) {
     if (e.target.name !== 'teeWho') return;
-    flushAvail();
-    tee.player = e.target.value;
-    try { localStorage.setItem(TEE_PLAYER_KEY, tee.player); } catch (x) {}
-    render();
+    selectTeePlayer(e.target.value);
   });
+  function selectTeePlayer(id) {
+    if (id === tee.player) return;
+    flushAvail();                                   // anything tapped for the previous person is still saved for them
+    tee.player = id;
+    try { localStorage.setItem(TEE_PLAYER_KEY, id); } catch (x) {}
+    render();
+  }
   document.addEventListener('click', function (e) {
     var b = e.target.closest('[data-tee]'); if (!b || !state.data || b.disabled) return;
     var a = b.dataset.tee, w = b.dataset.w;
@@ -1218,12 +1227,27 @@
       var db = T.dayBits(+b.dataset.d), m1 = mask() || 0;
       if ((m1 & db) === db) queueAvail(w, 0, db); else queueAvail(w, db, T.DECLINED);
     } else if (a === 'week') {
-      var before = mask(), pid = tee.player, wk = w;
-      if (b.dataset.v === 'all') queueAvail(w, T.FULL_MASK, T.DECLINED); else queueAvail(w, T.DECLINED, T.FULL_MASK);
-      if (before !== undefined) toastUndo(b.dataset.v === 'all' ? 'Whole weekend marked free.' : 'Marked as can’t make it.', function () {
-        if (tee.player !== pid) return;
-        queueAvail(wk, before, T.ALL_BITS & ~before);
-      });
+      var before = mask() || 0, pid = tee.player, wk = w, key = pid + '|' + w, all = b.dataset.v === 'all';
+      var isOn = all ? (before & T.FULL_MASK) === T.FULL_MASK : T.declined(before);
+      if (isOn) {
+        // tapped again: switch it off — back to how the weekend was before, or unanswered
+        var prev = tee.bulkPrev[key];
+        var back = prev !== undefined && !(all ? (prev & T.FULL_MASK) === T.FULL_MASK : T.declined(prev)) ? prev : 0;
+        delete tee.bulkPrev[key];
+        queueAvail(w, back, T.ALL_BITS & ~back);
+        toast(T.answered(back) ? (all ? 'Free all weekend switched off — back to your earlier times.' : 'Can’t make it switched off — back to your earlier times.') : (all ? 'Free all weekend switched off.' : 'Can’t make it switched off.') + ' This weekend is unanswered again.');
+      } else {
+        tee.bulkPrev[key] = before;
+        if (all) queueAvail(w, T.FULL_MASK, T.DECLINED); else queueAvail(w, T.DECLINED, T.FULL_MASK);
+        if (T.answered(before)) toastUndo(all ? 'Whole weekend marked free. Tap it again to switch off.' : 'Marked as can’t make it. Tap it again to switch off.', function () {
+          if (tee.player !== pid) return;
+          delete tee.bulkPrev[key];
+          queueAvail(wk, before, T.ALL_BITS & ~before);
+        });
+      }
+    } else if (a === 'who') {
+      selectTeePlayer(b.dataset.id);
+      toast('Editing ' + nm(b.dataset.id) + '’s availability.');
     } else if (a === 'retry') { tee.error = ''; tee.retries = 0; flushAvail(); render(); }
     else if (a === 'extend') {
       var t = teeCtx(); if (!t.fixture) return;

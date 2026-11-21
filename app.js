@@ -880,9 +880,11 @@
     var played = lastPlayedFixture();
     var anchor = played ? { date: played.date, round: played.round, kind: 'played' } : null;
     locked.forEach(function (L) { if (!anchor || L.date > anchor.date) anchor = { date: L.date, round: L.fixture.round, kind: L.kind }; });
-    var win = T.windowFor({ lastPlayed: anchor ? anchor.date : null, today: today, weeks: f.teeWeeks });
+    var avail = availMap(), answeredWeekends = [];
+    Object.keys(avail).forEach(function (pid) { Object.keys(avail[pid]).forEach(function (w) { if (T.answered(avail[pid][w])) answeredWeekends.push(w); }); });
+    var win = T.windowFor({ lastPlayed: anchor ? anchor.date : null, today: today, weeks: f.teeWeeks, answered: answeredWeekends });
     var players = fixturePlayers(f);
-    var o = { players: players, weekends: win.weekends, avail: availMap(), today: today, now: T.nowTime(teeTz()), preferred: cfg.teePreferredWindows || [] };
+    var o = { players: players, weekends: win.weekends, avail: avail, today: today, now: T.nowTime(teeTz()), preferred: cfg.teePreferredWindows || [] };
     return { c: c, fixture: f, locked: locked, last: anchor, today: today, win: win, o: o, players: players, best: T.best(o), overlaps: T.overlaps(o).slice(0, 3), blocker: T.blocker(o), proposal: liveProposal(f.id) };
   }
   var LOCK_WORD = { played: '', scheduled: 'scheduled', agreed: 'date agreed', dated: 'date set' };

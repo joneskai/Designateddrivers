@@ -257,6 +257,30 @@ const SAT = 1, SUN = 2, EA = 0, LA = 1;
     assert.match(await text('.tee-next'), /Round 05/);
     assert.strictEqual(await text('.tw-dates'), T.weekendLabel(W[0]));
 
+    // ---------- 10c. availability filled in for 8 weekends carries over to the next round once this one is locked in
+    await fresh();
+    await pick('jones');
+    await page.click('.tee-foot [data-tee="extend"]'); await page.waitForFunction(() => document.querySelectorAll('.tee-week').length === 6);
+    await page.click('.tee-foot [data-tee="extend"]'); await page.waitForFunction(() => document.querySelectorAll('.tee-week').length === 8);
+    const W8 = await page.$$eval('.tee-week [data-tee="week"][data-v="all"]', (b) => b.map((x) => x.dataset.w));
+    assert.strictEqual(W8.length, 8);
+    for (const w of W8.slice(1)) await page.click(cell(w, SAT, LA));                       // Jones: Sat Late AM, weeks 2–8
+    await saved();
+    for (const who of ['jones', 'fitz', 'pirie', 'forrest']) { await pick(who); await page.click(cell(W8[0], SUN, EA)); await saved(); }
+    await page.click(`.ov-row[data-w="${W8[0]}"][data-d="2"][data-s="0"]`); await page.click('#tpGo');
+    await page.waitForSelector('.tn-box.proposed');
+    for (const who of ['jones', 'fitz', 'pirie']) { await pick(who); await page.click('[data-tee="respond"][data-r="yes"]'); await page.waitForTimeout(350); }
+    await page.waitForSelector('.tee-locked');                                               // Round 05 locked in
+    assert.match(await text('.tee-next:not(.tee-locked)'), /Round 06/);
+    await pick('jones');
+    const next = await page.$$eval('.tee-week [data-tee="week"][data-v="all"]', (b) => b.map((x) => x.dataset.w));
+    assert.strictEqual(next[0], T.eligibleFriday(T.addDays(W8[0], 2)), 'Round 06 opens three weeks after the locked-in date');
+    assert.strictEqual(next[next.length - 1], W8[7], 'the calendar reaches the last weekend Jones filled in');
+    const carried = W8.filter((w) => w >= next[0]);
+    assert.ok(carried.length >= 4);
+    for (const w of carried) assert.ok(await page.$(cell(w, SAT, LA) + '.yes'), 'Jones\'s answer kept for ' + w);
+    assert.ok(!/Not answered yet/.test(await text(`.tee-week:has([data-w="${carried[0]}"])`)));
+
     // ---------- 11. no overlap in the first four weekends -> extend by two, earlier answers kept
     await fresh();
     for (const who of ['jones', 'fitz', 'pirie', 'forrest']) {

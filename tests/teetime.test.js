@@ -61,6 +61,18 @@ test('labels', () => {
   assert.strictEqual(T.shortDate('2027-01-09'), 'Sat 9 Jan');
 });
 
+test('the calendar stretches to cover weekends already answered (carried over from the last round)', () => {
+  // Round 2 planned with 8 weekends from Fri 1 Jan; locked in for Sat 2 Jan -> Round 3 opens Fri 22 Jan
+  const answered = ['2027-01-01', '2027-01-08', '2027-01-15', '2027-01-22', '2027-01-29', '2027-02-05', '2027-02-12', '2027-02-19'];
+  const w = T.windowFor({ lastPlayed: '2027-01-02', today: '2027-01-03', answered });
+  assert.strictEqual(w.start, '2027-01-22');
+  assert.deepStrictEqual(w.weekends, ['2027-01-22', '2027-01-29', '2027-02-05', '2027-02-12', '2027-02-19']);
+  // nothing answered beyond the usual four: stays at four
+  assert.strictEqual(T.windowFor({ lastPlayed: '2027-01-02', today: '2027-01-03', answered: ['2027-01-22'] }).weeks, 4);
+  // never more than the maximum
+  assert.strictEqual(T.windowFor({ lastPlayed: '2027-01-02', today: '2027-01-03', answered: ['2028-01-07'] }).weeks, T.MAX_WEEKS);
+});
+
 console.log('Bits');
 test('fifteen cells per weekend; clear wins over set', () => {
   assert.strictEqual(T.FULL_MASK, 32767);

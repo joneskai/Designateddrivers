@@ -83,6 +83,13 @@
     var t = o.today, eligible = eligibleFriday(o.lastPlayed), now = currentFriday(t);
     var start = eligible && eligible > now ? eligible : now;
     var weeks = Math.max(INITIAL_WEEKS, Math.min(MAX_WEEKS, o.weeks || INITIAL_WEEKS));
+    // stretch to cover weekends people have already answered (e.g. filled in while planning the
+    // previous round), so their availability carries straight over to this one
+    (o.answered || []).forEach(function (fri) {
+      if (!isFriday(fri) || fri < start) return;
+      var need = Math.round((toUtc(fri) - toUtc(start)) / (7 * 86400000)) + 1;
+      if (need > weeks) weeks = Math.min(MAX_WEEKS, need);
+    });
     var weekends = [];
     for (var i = 0; i < weeks; i++) weekends.push(addDays(start, i * 7));
     return { start: start, eligible: eligible, slid: !!(eligible && eligible < now), weekends: weekends, weeks: weeks };
